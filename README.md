@@ -86,8 +86,8 @@ El ratón cuenta con **5 sensores de distancia** (metros) que apuntan en distint
 | `IR_SENSOR_RIGHT` | 90° derecha |
 
 ```cpp
-s->ir_sensors[IR_SENSOR_FRONT]   // distancia al frente (m)
-s->ir_sensors[IR_SENSOR_LEFT]    // distancia a la izquierda (m)
+s->ir_sensors[IR_SENSOR_FRONT]  // distancia al frente (m)
+s->ir_sensors[IR_SENSOR_LEFT]   // distancia a la izquierda (m)
 // ...
 ```
 
@@ -98,8 +98,8 @@ El alcance máximo es **1 m**. Si no hay pared en rango, el sensor devuelve `1.0
 La **IMU** (Inertial Measurement Unit) mide el movimiento propio del ratón.
 
 ```cpp
-s->mouse_accelerometer   // Vector2 (m/s²): y=adelante, x=derecha
-s->mouse_gyroscope       // float (rad/s, CCW+): velocidad angular
+s->mouse_accelerometer  // Vector2 (m/s²): y=adelante, x=derecha
+s->mouse_gyroscope      // float (rad/s, CCW+): velocidad angular
 ```
 
 ### Setpoint
@@ -107,8 +107,8 @@ s->mouse_gyroscope       // float (rad/s, CCW+): velocidad angular
 El **setpoint** es el objetivo de movimiento que le pediste al controlador con `SetMouseSetpoint(...)`. Estos campos indican cuánto falta para completar ese comando.
 
 ```cpp
-s->setpoint_distance_remaining   // float (m): distancia restante (positivo = falta avanzar)
-s->setpoint_rotation_remaining   // float (rad, CCW+): rotación restante
+s->setpoint_distance  // float (m): distancia restante (positivo = falta avanzar)
+s->setpoint_rotation  // float (rad, CCW+): rotación restante
 ```
 
 Puedes cambiar el setpoint en todo momento.

@@ -75,7 +75,7 @@ const SimState *s = GetSimState(sim);
 
 ### Infrarrojos
 
-El ratón cuenta con **5 sensores de distancia** (metros) que apuntan en distintas direcciones:
+El ratón cuenta con **5 sensores de distancia** que apuntan en distintas direcciones y miden la distancia en metros desde el centro del robot hasta la pared más cercana:
 
 | Constante | Dirección |
 | --------- | --------- |

@@ -303,7 +303,7 @@ static void ApplyDrive(Sim *sim, float left_wheel_target_velocity, float right_w
     b2Body_ApplyForceToCenter(sim->mouse_body, b2Vec2(forward_force.x, forward_force.y), true);
 
     // Apply lateral no-slip impulse: cancel velocity perpendicular to heading.
-    float lateral_impulse_magnitude = -MOUSE_MASS * lateral_velocity;
+    float lateral_impulse_magnitude = -0.5f * MOUSE_MASS * lateral_velocity;
     Vector2 lateral_impulse = Vector2Scale(right, lateral_impulse_magnitude);
     b2Body_ApplyLinearImpulseToCenter(sim->mouse_body, b2Vec2(lateral_impulse.x, lateral_impulse.y), true);
 

@@ -104,3 +104,8 @@ desktop.ini
 # =========================
 .claude
 CLAUDE.md
+
+# =========================
+# Test mazes (not for students)
+# =========================
+/mazes/test/

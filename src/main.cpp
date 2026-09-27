@@ -7,6 +7,7 @@
  *   2. Replace "starter_mouse" with your MouseDescriptor in CreateMouse().
  */
 
+#include <cstdio>
 #include <map>
 #include <string>
 #include <iostream>
@@ -67,7 +68,18 @@ int main(int argc, char *argv[])
 
     if (args.contains("gen"))
     {
-        uint32_t seed = std::stoul(args["gen"]);
+        uint32_t seed;
+
+        try
+        {
+            seed = std::stoul(args["gen"]);
+        }
+        catch (const std::exception &)
+        {
+            std::cerr << "error: invalid seed: " << args["gen"] << std::endl;
+
+            return 1;
+        }
 
         std::cout << "Generating maze with seed " << seed << "...\n";
 

@@ -22,12 +22,6 @@ El laberinto ya está generado. La física, los sensores y el rendering ya funci
 
 ## El simulador
 
-Para compilar el proyecto, instala primero las dependencias:
-
-```bash
-vcpkg install raylib box2d
-```
-
 Ejecuta el simulador con:
 
 ```bash
@@ -98,9 +92,22 @@ El alcance máximo es **1 m**. Si no hay pared en rango, el sensor devuelve `1.0
 La **IMU** (Inertial Measurement Unit) mide el movimiento propio del ratón.
 
 ```cpp
-s->mouse_accelerometer  // Vector2 (m/s²): y=adelante, x=derecha
-s->mouse_gyroscope      // float (rad/s, CCW+): velocidad angular
+s->accelerometer  // Vector2 (m/s²): y=adelante, x=derecha
+s->gyroscope      // float (rad/s, CCW+): velocidad angular
 ```
+
+Como en un giróscopo real, la lectura tiene un pequeño **sesgo** (bias) que cambia en cada corrida y deriva lentamente. Si lo integras para estimar la orientación, el error crece con el tiempo.
+
+### Encoders
+
+Cada rueda tiene un **encoder** que mide cuánto avanzó desde el último reset:
+
+```cpp
+s->encoders[ENCODER_LEFT]   // float (m): distancia recorrida por la rueda izquierda (positivo = adelante)
+s->encoders[ENCODER_RIGHT]  // float (m): distancia recorrida por la rueda derecha
+```
+
+El promedio de ambos es cuánto avanzó el ratón, y su diferencia dividida por la trocha (`MOUSE_WHEEL_TRACK`, 70 mm) es cuánto giró. Pero los encoders no son perfectos: el diámetro real de las ruedas difiere un poco del nominal (el mismo error en todas las corridas), las ruedas patinan un poco, y no registran el deslizamiento lateral, por ejemplo al rozar una pared. El controlador de movimiento usa los mismos encoders, así que "avanzar 18 cm" significa que los encoders marcan 18 cm.
 
 ### Setpoint
 
@@ -151,6 +158,7 @@ Dentro de `update` puedes usar estas funciones:
 - `PaintCell(sim, cell, color);`
 - `GetCellColor(sim, cell);`
 - `ResetCellColors(sim);`
+- `SetEstimatedPose(sim, position, rotation);`
 
 No puedes acceder a los campos internos de `sim` ni a las otras funciones del simulador.
 
@@ -188,7 +196,8 @@ Debes entregar:
 ## Recomendaciones
 
 - Prueba el **keyboard mouse** (WASD) con el laberinto `empty_maze.txt` para adquirir intuición de la física. Recuerda apretar `R` para iniciar el simulador.
-- Logra que tu ratón sea robusto al **error odométrico**, que es ≈7 mm/m en distancia y ≈4° cada 90° en rotación. Puedes compensar el error de distancia con los sensores IR, y el error de rotación, integrando el dato del giróscopo.
+- Logra que tu ratón sea robusto al **error odométrico**: ≈7 mm/m en distancia (encoders), ≈1° cada 90° en rotación, y una deriva lenta del rumbo por el sesgo del giróscopo. Para estimar tu posición combina encoders (distancia) y giróscopo (rumbo), y corrige ambos errores con los sensores IR (por ejemplo, alineándote con las paredes).
+- Reporta tu estimación de posición y orientación con `SetEstimatedPose`: el simulador la dibuja como un contorno celeste junto al ratón real y muestra el error en el panel (`Est. error`). Es la mejor forma de depurar tu localización.
 - Empieza con el seguidor de pared y asegúrate de que funciona bien antes de intentar algo más complejo.
 - Usa `PaintCell` para depurar.
 - Prueba con múltiples semillas (`--gen`) y laberintos oficiales.

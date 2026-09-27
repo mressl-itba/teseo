@@ -84,4 +84,4 @@ Mouse *CreateMouse(MouseDescriptor &descriptor);
  */
 void DestroyMouse(Mouse *mouse);
 
-#endif // MOUSE_H
+#endif // AGENT_H

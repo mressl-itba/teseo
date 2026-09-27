@@ -107,7 +107,7 @@ Maze *LoadMaze(const char *filename)
         if (file_row == 0)
         {
             cell_width = (len - 1) / GRID_SIZE;
-            if (cell_width == 0)
+            if (cell_width != 2 && cell_width != 4)
                 break;
         }
 
@@ -148,6 +148,15 @@ Maze *LoadMaze(const char *filename)
     }
 
     fclose(f);
+
+    // Reject malformed files: unknown format or missing rows.
+    if (file_row != 2 * GRID_SIZE + 1)
+    {
+        delete maze;
+
+        return nullptr;
+    }
+
     return maze;
 }
 
@@ -171,7 +180,7 @@ bool HasWall(const Maze *maze, Cell cell, uint8_t wall_bit)
     return (maze->walls[cell.x][cell.y] & wall_bit) != 0;
 }
 
-bool isStartCell(Cell cell)
+bool IsStartCell(Cell cell)
 {
     return cell.x == 0 && cell.y == 0;
 }

@@ -14,7 +14,6 @@
 // Maze geometry
 
 #define GRID_SIZE 16
-#define MAZE_SIZE (GRID_SIZE * CELL_SIZE)
 
 /**
  * @brief Cell coordinate (x = column, y = row), (0, 0) is southwest corner.
@@ -62,7 +61,7 @@ Maze *GenerateMaze(uint32_t seed);
  * 
  * @param filename Path to the maze file.
  * 
- * @return A pointer to the loaded Maze.
+ * @return A pointer to the loaded Maze, or nullptr if the file cannot be read or is malformed.
  */
 Maze *LoadMaze(const char *filename);
 
@@ -101,7 +100,7 @@ bool HasWall(const Maze *maze, Cell cell, uint8_t wall_bit);
  * 
  * @return true if the cell is the start cell, false otherwise.
  */
-bool isStartCell(Cell cell);
+bool IsStartCell(Cell cell);
 
 /**
  * @brief Returns true if the given cell is part of the goal area.

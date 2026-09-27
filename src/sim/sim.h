@@ -24,14 +24,16 @@
 #define ROTATION_WEST (1.0f * PI)
 #define ROTATION_SOUTH (1.5f * PI)
 
-#define TURN_CCW (0.5f * PI) // -90° turn in radians
-#define TURN_CW (-0.5f * PI) // +90° turn in radians
+#define TURN_CCW (0.5f * PI) // +90° turn in radians (left)
+#define TURN_CW (-0.5f * PI) // -90° turn in radians (right)
 #define TURN_REVERSE PI      // +180° turn in radians
 
 // Maze geometry
 
 #define CELL_SIZE 0.18f       // m
 #define WALL_THICKNESS 0.012f // m
+
+#define MAZE_SIZE (GRID_SIZE * CELL_SIZE) // m
 
 #define CELL_HALF_SIZE (CELL_SIZE / 2.0f)
 #define WALL_HALF_THICKNESS (WALL_THICKNESS / 2.0f)
@@ -57,9 +59,15 @@
 #define MOUSE_MOTOR_K (MOUSE_WHEEL_FORCE_MAX / MOUSE_WHEEL_VELOCITY_MAX) // N·s/m (k_t·k_e / R·r²)
 
 // Odometry error
+// The mouse controller measures distance with the wheel encoders and heading with the
+// integrated gyroscope, so their errors make the mouse drift away from the commanded path.
 
-#define ODOMETRY_DISTANCE_ERROR (0.007f / 1.0f) // Factor of distance
-#define ODOMETRY_ROTATION_ERROR (4.0f / 90.0f)  // Factor of rotation
+#define ENCODER_SCALE_ERROR 0.007f                  // Stddev of the wheels' common scale error, fixed per mouse (≈7 mm/m)
+#define ENCODER_MISMATCH_ERROR 0.001f               // Stddev of each wheel's additional scale error, fixed per mouse
+#define ENCODER_SLIP_NOISE 0.01f                    // Relative stddev of each step's wheel displacement (wheel slip)
+#define ODOMETRY_ROTATION_ERROR 0.01f               // Relative stddev of each commanded rotation (≈1° per 90°)
+#define GYROSCOPE_BIAS (0.05f * PI / 180.0f)        // Stddev of residual gyroscope bias, drawn each run (rad/s)
+#define GYROSCOPE_BIAS_WALK (0.005f * PI / 180.0f)  // Gyroscope bias random walk (rad/s per √s)
 
 // Wheel controller
 
@@ -67,8 +75,6 @@
 #define MOUSE_KD_DISTANCE 1.5f  // m/s per m/s (velocity damping)
 #define MOUSE_KP_ROTATION 1.0f  // m/s per rad (rotation proportional gain)
 #define MOUSE_KD_ROTATION 0.09f // m/s per rad/s (angular velocity damping)
-
-#define WHEEL_ANGULAR_VELOCITY_MAX (2.0f * MOUSE_WHEEL_VELOCITY_MAX / MOUSE_WHEEL_TRACK)
 
 // Mouse sensors (5 IR sensors: left, front-left, front, front-right, right)
 
@@ -85,7 +91,17 @@ enum
     IR_SENSOR_RIGHT,
 };
 
-extern float IR_SENSOR_ANGLES[IR_SENSOR_NUM];
+extern const float IR_SENSOR_ANGLES[IR_SENSOR_NUM];
+
+// Wheel encoders
+
+#define ENCODER_NUM 2
+
+enum
+{
+    ENCODER_LEFT,
+    ENCODER_RIGHT,
+};
 
 // Sim state
 
@@ -110,8 +126,10 @@ struct SimState
     float run_time;      // Elapsed time since start of run (seconds).
     float run_time_best; // Best time achieved so far (seconds).
 
-    Vector2 accelerometer; // Linear acceleration in body frame (m/s²): x=forward, y=left (CCW+)
-    float gyroscope;       // Angular velocity (rad/s, CCW+)
+    Vector2 accelerometer; // Linear acceleration in body frame (m/s²): y=forward, x=right
+    float gyroscope;       // Angular velocity (rad/s, CCW+), includes a slowly drifting bias
+
+    float encoders[ENCODER_NUM]; // Distance traveled by each wheel since the last reset (meters, positive = forward)
 
     float setpoint_distance; // Distance remaining to reach setpoint (meters, positive = forward)
     float setpoint_rotation; // Rotation remaining to reach setpoint (radians, CCW+)
@@ -202,6 +220,16 @@ const SimState *GetSimState(Sim *sim);
  */
 void SetMouseSetpoint(Sim *sim, float distance, float rotation);
 
+/**
+ * @brief Reports the agent's estimate of the mouse pose. The UI draws it as an outline
+ *        next to the real mouse, and shows the estimation error. Used for debugging.
+ *
+ * @param sim The simulation instance.
+ * @param position The estimated position (meters, north/east coordinates).
+ * @param rotation The estimated rotation (radians, CCW+, 0 = East).
+ */
+void SetEstimatedPose(Sim *sim, Vector2 position, float rotation);
+
 // This is the end of the agent API.
 // The following functions are used by the UI and must not be called by mouse agents.
 // -----------------------------------------------------------------------------
@@ -250,6 +278,17 @@ Vector2 GetMousePosition(Sim *sim);
  * @return The current rotation of the mouse in radians.
  */
 float GetMouseRotation(Sim *sim);
+
+/**
+ * @brief Gets the pose estimate last reported by the agent with SetEstimatedPose().
+ *
+ * @param sim The simulation instance to query.
+ * @param position Output: the estimated position.
+ * @param rotation Output: the estimated rotation.
+ *
+ * @return true if the agent reported an estimate since the last reset, false otherwise.
+ */
+bool GetEstimatedPose(Sim *sim, Vector2 *position, float *rotation);
 
 /**
  * @brief Starts a new run and resets the mouse.

@@ -32,6 +32,7 @@
 #define MOUSE_HALF_WIDTH_PIXELS (MOUSE_HALF_WIDTH * PIXELS_PER_METER)
 #define MOUSE_HALF_LENGTH_PIXELS (MOUSE_HALF_LENGTH * PIXELS_PER_METER)
 #define MOUSE_ARROW_THICKNESS_PIXELS WALL_THICKNESS_PIXELS
+#define ESTIMATE_THICKNESS_PIXELS WALL_HALF_THICKNESS_PIXELS
 
 #define SENSOR_THICKNESS_PIXELS WALL_THICKNESS_PIXELS
 #define SENSOR_HIT_RADIUS_PIXELS SENSOR_THICKNESS_PIXELS
@@ -59,6 +60,7 @@
 #define COLOR_SENSOR_HIT {255, 200, 60, 140}
 #define COLOR_SENSOR_MISS {255, 200, 60, 70}
 #define COLOR_MOUSE_ARROW {255, 200, 60, 255}
+#define COLOR_ESTIMATE {60, 200, 255, 255}
 
 #define COLOR_PANEL_BACKGROUND {15, 18, 28, 255}
 #define COLOR_TITLE {60, 160, 255, 255}
@@ -182,7 +184,6 @@ static void DrawMouseSensors()
 
         float angle = GetMouseRotation(ui.sim) + IR_SENSOR_ANGLES[i];
         Vector2 direction = {std::cos(-angle), std::sin(-angle)};
-        Vector2 translation = Vector2Scale(direction, sensor_distance);
         Vector2 end = Vector2Add(start, Vector2Scale(direction, sensor_distance * PIXELS_PER_METER));
 
         if (sensor_hit)
@@ -197,8 +198,6 @@ static void DrawMouseSensors()
 
 static void DrawMouse()
 {
-    const SimState *state = GetSimState(ui.sim);
-
     Vector2 position = WorldToScreen(GetMousePosition(ui.sim));
     float rotation = GetMouseRotation(ui.sim);
 
@@ -214,6 +213,34 @@ static void DrawMouse()
     Vector2 arrow_end = Vector2Add(position, Vector2Scale(direction, MOUSE_HALF_LENGTH_PIXELS));
 
     DrawLineEx(position, arrow_end, MOUSE_ARROW_THICKNESS_PIXELS, COLOR_MOUSE_ARROW);
+}
+
+static void DrawMouseEstimate()
+{
+    Vector2 estimated_position;
+    float estimated_rotation;
+
+    if (!GetEstimatedPose(ui.sim, &estimated_position, &estimated_rotation))
+        return;
+
+    // Body outline
+    Vector2 forward = Vector2FromAngle(estimated_rotation, MOUSE_HALF_LENGTH);
+    Vector2 left = Vector2FromAngle(estimated_rotation + TURN_CCW, MOUSE_HALF_WIDTH);
+
+    Vector2 corners[4] = {
+        Vector2Add(Vector2Add(estimated_position, forward), left),
+        Vector2Subtract(Vector2Add(estimated_position, forward), left),
+        Vector2Subtract(Vector2Subtract(estimated_position, forward), left),
+        Vector2Add(Vector2Subtract(estimated_position, forward), left),
+    };
+
+    for (int i = 0; i < 4; i++)
+        DrawLineEx(WorldToScreen(corners[i]), WorldToScreen(corners[(i + 1) % 4]),
+                   ESTIMATE_THICKNESS_PIXELS, COLOR_ESTIMATE);
+
+    // Direction arrow
+    DrawLineEx(WorldToScreen(estimated_position), WorldToScreen(Vector2Add(estimated_position, forward)),
+               ESTIMATE_THICKNESS_PIXELS, COLOR_ESTIMATE);
 }
 
 static void DrawPanelText(const char *label, float cx, float &cy, int size = FONT_SIZE_SMALL, Color color = COLOR_TEXT)
@@ -281,6 +308,19 @@ static void DrawPanel()
     else
         DrawPanelTab("Best time", "-", position.x, position.y);
 
+    Vector2 estimated_position;
+    float estimated_rotation;
+    if (GetEstimatedPose(ui.sim, &estimated_position, &estimated_rotation))
+    {
+        float position_error = Vector2Distance(estimated_position, GetMousePosition(ui.sim));
+        float rotation_error = AngleDiff(GetMouseRotation(ui.sim), estimated_rotation);
+
+        DrawPanelTab("Est. error", TextFormat("%.1f cm  %+.1f°", position_error * 100.0f, rotation_error * RAD2DEG),
+                     position.x, position.y);
+    }
+    else
+        DrawPanelTab("Est. error", "-", position.x, position.y);
+
     DrawPanelLine(position.y);
 
     // Sensors
@@ -325,8 +365,9 @@ void CreateUI(const Maze *maze, Mouse *mouse)
 
     ui.sim = CreateSim(maze);
 
-    SetTargetFPS(GetMonitorRefreshRate(GetCurrentMonitor()));
+    // Monitor queries need an initialized window, so the target FPS is set afterwards.
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Teseo — Micromouse Virtual Competition");
+    SetTargetFPS(GetMonitorRefreshRate(GetCurrentMonitor()));
 }
 
 void DestroyUI()
@@ -371,6 +412,7 @@ bool UpdateUI()
     DrawMaze();
     DrawMouseSensors();
     DrawMouse();
+    DrawMouseEstimate();
     DrawPanel();
 
     EndDrawing();

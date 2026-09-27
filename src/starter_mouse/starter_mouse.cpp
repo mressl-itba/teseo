@@ -17,8 +17,8 @@ struct AgentState
 {
     bool just_turned_right = false;
 
-    Vector2 mouse_position; // Current estimated position (meters, north/east coordinates)
-    float mouse_rotation;   // Current estimated rotation (radians, CCW+, 0 = East)
+    Vector2 mouse_position; // Estimated position at the end of the current step (meters, north/east coordinates)
+    float mouse_rotation;   // Estimated rotation at the end of the current step (radians, CCW+, 0 = East)
 };
 
 // Wall detection: sensor distance below this → wall present.
@@ -48,6 +48,12 @@ static void UpdateStarterMouse(void *userdata, Sim *sim)
 {
     AgentState *agent_state = (AgentState *)userdata;
     const SimState *sim_state = GetSimState(sim);
+
+    // Report the current pose estimate: end of the current step minus what remains of it.
+    float estimated_rotation = agent_state->mouse_rotation - sim_state->setpoint_rotation;
+    Vector2 estimated_position = Vector2Subtract(agent_state->mouse_position,
+                                                 Vector2FromAngle(estimated_rotation, sim_state->setpoint_distance));
+    SetEstimatedPose(sim, estimated_position, estimated_rotation);
 
     // Wait for the current step to finish before deciding the next move.
     if (fabsf(sim_state->setpoint_distance) > DIST_DONE ||

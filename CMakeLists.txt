@@ -33,18 +33,27 @@ set(BOX2D_UNIT_TESTS OFF CACHE BOOL "" FORCE)
 
 FetchContent_MakeAvailable(raylib box2d)
 
-set(SOURCES
+# Simulator and UI, shared by all mice
+add_library(teseo STATIC
     src/main.cpp
-    src/sim/agent.cpp
     src/sim/maze.cpp
     src/sim/sim.cpp
     src/ui/ui.cpp
-    src/starter_mouse/starter_mouse.cpp
-    src/keyboard_mouse/keyboard_mouse.cpp
 )
 
-add_executable(teseo ${SOURCES})
+target_link_libraries(teseo PUBLIC raylib box2d::box2d)
 
-target_link_libraries(teseo PRIVATE raylib box2d::box2d)
+target_include_directories(teseo PUBLIC src)
 
-target_include_directories(teseo PRIVATE src)
+# Each .cpp file in src/agents/ is a mouse and builds its own executable,
+# linked with the shared navigation layer in src/agents/nav/.
+# After adding a new file, re-run CMake (cmake -B build) if it is not picked up.
+file(GLOB NAV_SOURCES CONFIGURE_DEPENDS src/agents/nav/*.cpp)
+file(GLOB MOUSE_SOURCES CONFIGURE_DEPENDS src/agents/*.cpp)
+
+foreach(MOUSE_SOURCE ${MOUSE_SOURCES})
+    get_filename_component(MOUSE_NAME ${MOUSE_SOURCE} NAME_WE)
+
+    add_executable(${MOUSE_NAME} ${MOUSE_SOURCE} ${NAV_SOURCES})
+    target_link_libraries(${MOUSE_NAME} PRIVATE teseo)
+endforeach()

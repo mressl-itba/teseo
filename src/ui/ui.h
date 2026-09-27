@@ -10,15 +10,14 @@
 #ifndef UI_H
 #define UI_H
 
-#include "../sim/agent.h"
+#include "sim/maze.h"
 
 /**
- * @brief Creates the raylib window and initializes UI state.
+ * @brief Creates the raylib window and the simulation.
  *
- * @param maze The maze layout, used for rendering the walls and goal.
- * @param mouse The mouse instance, used to access mouse state for rendering.
+ * @param maze The maze layout, used for the simulation and for rendering.
  */
-void CreateUI(const Maze *maze, Mouse *mouse);
+void CreateUI(const Maze *maze);
 
 /**
  * @brief Steps the simulation and updates the UI.

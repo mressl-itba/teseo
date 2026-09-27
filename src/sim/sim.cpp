@@ -44,12 +44,12 @@ struct Sim
 
     SimState state;
 
-    // Mouse controller
-    float reference_distance;      // Encoder distance when setpoint was issued
-    float reference_rotation;      // Reference rotation when setpoint was issued
-    float target_distance;         // Target distance
-    float target_rotation;         // Target rotation
-    float odometry_rotation_error; // Odometric error rotation
+    // Velocity controller
+    float target_velocity;           // Forward velocity set by the agent (m/s)
+    float target_angular_velocity;   // Angular velocity set by the agent (rad/s)
+    float velocity_integral;         // Integral of the forward velocity error (m)
+    float angular_velocity_integral; // Integral of the angular velocity error (rad)
+    float encoder_distance_last;     // Mean encoder reading at the last step, for measuring velocity
 
     // Wheel encoders
     float encoder_scale[ENCODER_NUM]; // Scale error of each wheel (fixed per mouse)
@@ -58,7 +58,6 @@ struct Sim
 
     // Gyroscope drift
     float gyroscope_bias; // Current gyroscope bias (rad/s)
-    float heading_error;  // Controller heading minus true heading (rad), integrated gyroscope bias
 
     // Agent's pose estimate (for display only)
     bool estimated_pose_valid;
@@ -247,35 +246,23 @@ static void UpdateMouseState(Sim *sim)
     }
 }
 
-static void ResetMouseController(Sim *sim, float rotation)
+static void ResetMouseController(Sim *sim)
 {
-    sim->reference_distance = 0.0f;
-    sim->reference_rotation = rotation;
-
-    sim->target_distance = 0.0f;
-
-    sim->target_rotation = rotation;
-    sim->odometry_rotation_error = 1.0f;
-
-    sim->state.setpoint_distance = 0.0f;
-    sim->state.setpoint_rotation = 0.0f;
-}
-
-static float GetControllerRotation(Sim *sim)
-{
-    // Heading as the mouse believes it to be (true heading plus integrated gyroscope bias).
-    return sim->mouse_rotation + sim->heading_error;
+    sim->target_velocity = 0.0f;
+    sim->target_angular_velocity = 0.0f;
+    sim->velocity_integral = 0.0f;
+    sim->angular_velocity_integral = 0.0f;
+    sim->encoder_distance_last = 0.0f;
 }
 
 static void UpdateGyroscopeDrift(Sim *sim, float dt)
 {
-    sim->heading_error += sim->gyroscope_bias * dt;
     sim->gyroscope_bias += GYROSCOPE_BIAS_WALK * sqrtf(dt) * RandomGaussian();
 }
 
-static float GetControllerDistance(Sim *sim)
+static float GetEncoderDistance(Sim *sim)
 {
-    // Distance as the mouse believes it to be (mean of both wheel encoders).
+    // Distance traveled as the mouse measures it (mean of both wheel encoders).
     return 0.5f * (sim->state.encoders[ENCODER_LEFT] + sim->state.encoders[ENCODER_RIGHT]);
 }
 
@@ -317,7 +304,6 @@ static void ResetMousePhysics(Sim *sim)
 
     // New residual gyroscope bias for this run (as after a gyroscope calibration at the start cell)
     sim->gyroscope_bias = GYROSCOPE_BIAS * RandomGaussian();
-    sim->heading_error = 0.0f;
 
     sim->estimated_pose_valid = false;
 
@@ -332,7 +318,7 @@ static void ResetMousePhysics(Sim *sim)
     ResetEncoders(sim);
 
     // Reset controller
-    ResetMouseController(sim, rotation);
+    ResetMouseController(sim);
 }
 
 static bool StartRun(Sim *sim)
@@ -389,44 +375,44 @@ static void ApplyDrive(Sim *sim, float left_wheel_target_velocity, float right_w
     b2Body_ApplyTorque(sim->mouse_body, tau, true);
 }
 
-static void UpdateMouseController(Sim *sim)
+static void UpdateMouseController(Sim *sim, float dt)
 {
-    float rotation = sim->mouse_rotation;
-    float controller_rotation = GetControllerRotation(sim);
+    // Measured velocities: the motor driver only knows what the encoders and the gyroscope tell it
+    float encoder_distance = GetEncoderDistance(sim);
+    float velocity = (encoder_distance - sim->encoder_distance_last) / dt;
+    float angular_velocity = sim->state.gyroscope;
+    sim->encoder_distance_last = encoder_distance;
 
-    // Distance traveled since the setpoint was issued (measured with the wheel encoders)
-    float distance_current = GetControllerDistance(sim) - sim->reference_distance;
+    // PI control around a feedforward term: the motor model reaches the target by itself
+    // with perfect sensors, the integral term makes it track what the sensors measure.
+    float velocity_error = sim->target_velocity - velocity;
+    float angular_velocity_error = sim->target_angular_velocity - angular_velocity;
 
-    // Distance error
-    float distance_error = sim->target_distance - distance_current;
+    float velocity_command = sim->target_velocity +
+                             MOUSE_VELOCITY_KP * velocity_error +
+                             MOUSE_VELOCITY_KI * sim->velocity_integral;
+    float angular_velocity_command = sim->target_angular_velocity +
+                                     MOUSE_VELOCITY_KP * angular_velocity_error +
+                                     MOUSE_VELOCITY_KI * sim->angular_velocity_integral;
 
-    // Rotation error (measured with the controller's own, drifting heading)
-    float rotation_error = AngleDiff(controller_rotation, sim->target_rotation);
+    // Differential drive, limited by the maximum wheel velocity (motor voltage)
+    float left_command = velocity_command - angular_velocity_command * MOUSE_WHEEL_HALF_TRACK;
+    float right_command = velocity_command + angular_velocity_command * MOUSE_WHEEL_HALF_TRACK;
 
-    // Current body velocities for D term
-    b2Vec2 b2_velocity = b2Body_GetLinearVelocity(sim->mouse_body);
-    float forward_velocity = Vector2DotProduct({b2_velocity.x, b2_velocity.y}, Vector2FromAngle(rotation));
-    float angular_velocity = b2Body_GetAngularVelocity(sim->mouse_body);
+    bool saturated = fabsf(left_command) > MOUSE_WHEEL_VELOCITY_MAX ||
+                     fabsf(right_command) > MOUSE_WHEEL_VELOCITY_MAX;
 
-    // PD control: P drives toward setpoint, D damps velocity to prevent overshoot
-    float velocity_target = MOUSE_KP_DISTANCE * distance_error - MOUSE_KD_DISTANCE * forward_velocity;
-    float angular_velocity_target = MOUSE_KP_ROTATION * rotation_error - MOUSE_KD_ROTATION * angular_velocity;
+    left_command = std::clamp(left_command, -MOUSE_WHEEL_VELOCITY_MAX, MOUSE_WHEEL_VELOCITY_MAX);
+    right_command = std::clamp(right_command, -MOUSE_WHEEL_VELOCITY_MAX, MOUSE_WHEEL_VELOCITY_MAX);
 
-    // Clamp speeds so that both wheel speeds stay within the physical maximum.
-    // Rotation has priority: forward speed gets whatever wheel speed is left.
-    angular_velocity_target = std::clamp(angular_velocity_target,
-                                         -MOUSE_WHEEL_VELOCITY_MAX, MOUSE_WHEEL_VELOCITY_MAX);
-    float velocity_max = MOUSE_WHEEL_VELOCITY_MAX - fabsf(angular_velocity_target);
-    velocity_target = std::clamp(velocity_target, -velocity_max, velocity_max);
+    // Integrate only while not saturated (anti-windup)
+    if (!saturated)
+    {
+        sim->velocity_integral += velocity_error * dt;
+        sim->angular_velocity_integral += angular_velocity_error * dt;
+    }
 
-    // Differential drive
-    float left_velocity_target = velocity_target - angular_velocity_target;
-    float right_velocity_target = velocity_target + angular_velocity_target;
-
-    sim->state.setpoint_distance = distance_error;
-    sim->state.setpoint_rotation = rotation_error / sim->odometry_rotation_error;
-
-    ApplyDrive(sim, left_velocity_target, right_velocity_target);
+    ApplyDrive(sim, left_command, right_command);
 }
 
 // Public API
@@ -484,13 +470,15 @@ bool IsSimRunning(Sim *sim)
     return true;
 }
 
-void UpdateSim(Sim *sim, float dt)
+void UpdateSim(Sim *sim)
 {
+    const float dt = SIM_TIMESTEP;
+
     // Update mouse controller
-    UpdateMouseController(sim);
+    UpdateMouseController(sim, dt);
 
     // Step physics
-    b2World_Step(sim->world, dt, 8);
+    b2World_Step(sim->world, dt, 4);
 
     // Update timers
     if (sim->state.run_number >= 1)
@@ -564,24 +552,10 @@ const SimState *GetSimState(Sim *sim)
     return &sim->state;
 }
 
-void SetMouseSetpoint(Sim *sim, float distance, float rotation)
+void SetMouseVelocity(Sim *sim, float linear, float angular)
 {
-    float controller_rotation = GetControllerRotation(sim);
-
-    // Set reference distance and rotation for the mouse controller
-    sim->reference_distance = GetControllerDistance(sim);
-    sim->reference_rotation = controller_rotation;
-
-    // Odometry error (distance error comes from the wheel encoders)
-    sim->odometry_rotation_error = 1.0f + ODOMETRY_ROTATION_ERROR * RandomGaussian();
-
-    // Set target distance and rotation for the mouse controller, applying odometry error.
-    sim->target_distance = distance;
-    sim->target_rotation = controller_rotation + rotation * sim->odometry_rotation_error;
-
-    // Set remaining distance and rotation for mouse agent.
-    sim->state.setpoint_distance = distance;
-    sim->state.setpoint_rotation = rotation;
+    sim->target_velocity = linear;
+    sim->target_angular_velocity = angular;
 }
 
 void SetEstimatedPose(Sim *sim, Vector2 position, float rotation)

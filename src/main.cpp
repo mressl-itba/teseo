@@ -2,9 +2,7 @@
  * Teseo Micromouse Virtual Competition
  * Main entry point
  *
- * To register your own mouse implementation:
- *   1. Include its header below.
- *   2. Replace "starter_mouse" with your MouseDescriptor in CreateMouse().
+ * Each .cpp file in src/agents/ is a mouse and builds its own executable.
  */
 
 #include <cstdio>
@@ -15,11 +13,7 @@
 #include "raylib.h"
 
 #include "sim/maze.h"
-#include "sim/sim.h"
 #include "ui/ui.h"
-
-#include "starter_mouse/starter_mouse.h"
-#include "keyboard_mouse/keyboard_mouse.h"
 
 /**
  * @brief Very simple command-line parser
@@ -108,12 +102,8 @@ int main(int argc, char *argv[])
         return 0;
     }
 
-    // Create the mouse agent
-    Mouse *mouse = CreateMouse(starter_mouse);
-    // Mouse *mouse = CreateMouse(keyboard_mouse);
-
     // Create the UI
-    CreateUI(maze, mouse);
+    CreateUI(maze);
 
     // Main loop
     while (UpdateUI())
@@ -121,7 +111,6 @@ int main(int argc, char *argv[])
 
     // Cleanup
     DestroyUI();
-    DestroyMouse(mouse);
     DestroyMaze(maze);
 
     return 0;

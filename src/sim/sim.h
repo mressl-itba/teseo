@@ -15,6 +15,10 @@
 
 #include "maze.h"
 
+// Simulation step
+
+#define SIM_TIMESTEP 0.002f // s (500 Hz, like a real mouse control loop)
+
 // Rotations
 
 #define PI 3.14159265358979323846f
@@ -58,23 +62,21 @@
 #define MOUSE_WHEEL_FORCE_MAX 0.5f                                       // N
 #define MOUSE_MOTOR_K (MOUSE_WHEEL_FORCE_MAX / MOUSE_WHEEL_VELOCITY_MAX) // N·s/m (k_t·k_e / R·r²)
 
-// Odometry error
-// The mouse controller measures distance with the wheel encoders and heading with the
-// integrated gyroscope, so their errors make the mouse drift away from the commanded path.
+// Velocity controller (the motor driver: tracks the velocities set with SetMouseVelocity,
+// measuring them with the wheel encoders and the gyroscope)
 
-#define ENCODER_SCALE_ERROR 0.007f                  // Stddev of the wheels' common scale error, fixed per mouse (≈7 mm/m)
-#define ENCODER_MISMATCH_ERROR 0.001f               // Stddev of each wheel's additional scale error, fixed per mouse
-#define ENCODER_SLIP_NOISE 0.01f                    // Relative stddev of each step's wheel displacement (wheel slip)
-#define ODOMETRY_ROTATION_ERROR 0.01f               // Relative stddev of each commanded rotation (≈1° per 90°)
-#define GYROSCOPE_BIAS (0.05f * PI / 180.0f)        // Stddev of residual gyroscope bias, drawn each run (rad/s)
-#define GYROSCOPE_BIAS_WALK (0.005f * PI / 180.0f)  // Gyroscope bias random walk (rad/s per √s)
+#define MOUSE_VELOCITY_KP 16.0f  // Proportional gain (dimensionless)
+#define MOUSE_VELOCITY_KI 120.0f // Integral gain (1/s)
 
-// Wheel controller
+// Sensor errors
+// The velocity controller relies on the encoders and the gyroscope,
+// so their errors make the mouse drift away from the commanded path.
 
-#define MOUSE_KP_DISTANCE 8.0f  // m/s per m (distance proportional gain)
-#define MOUSE_KD_DISTANCE 1.5f  // m/s per m/s (velocity damping)
-#define MOUSE_KP_ROTATION 1.0f  // m/s per rad (rotation proportional gain)
-#define MOUSE_KD_ROTATION 0.09f // m/s per rad/s (angular velocity damping)
+#define ENCODER_SCALE_ERROR 0.007f                 // Stddev of the wheels' common scale error, fixed per mouse (≈7 mm/m)
+#define ENCODER_MISMATCH_ERROR 0.001f              // Stddev of each wheel's additional scale error, fixed per mouse
+#define ENCODER_SLIP_NOISE 0.01f                   // Relative stddev of each step's wheel displacement (wheel slip)
+#define GYROSCOPE_BIAS (0.05f * PI / 180.0f)       // Stddev of residual gyroscope bias, drawn each run (rad/s)
+#define GYROSCOPE_BIAS_WALK (0.005f * PI / 180.0f) // Gyroscope bias random walk (rad/s per √s)
 
 // Mouse sensors (5 IR sensors: left, front-left, front, front-right, right)
 
@@ -130,9 +132,6 @@ struct SimState
     float gyroscope;       // Angular velocity (rad/s, CCW+), includes a slowly drifting bias
 
     float encoders[ENCODER_NUM]; // Distance traveled by each wheel since the last reset (meters, positive = forward)
-
-    float setpoint_distance; // Distance remaining to reach setpoint (meters, positive = forward)
-    float setpoint_rotation; // Rotation remaining to reach setpoint (radians, CCW+)
 
     float ir_sensors[IR_SENSOR_NUM]; // Distance readings from the 5 IR sensors (meters)
 };
@@ -211,14 +210,14 @@ uint32_t GetCellColor(Sim *sim, Cell cell);
 const SimState *GetSimState(Sim *sim);
 
 /**
- * @brief Sets a movement setpoint for the mouse.
- *        The mouse will attempt to rotate to the target rotation and drive to the target distance.
+ * @brief Sets the velocities the motor driver should track. They are kept until changed.
+ *        Each wheel is limited to MOUSE_WHEEL_VELOCITY_MAX.
  *
  * @param sim The simulation instance.
- * @param distance The distance setpoint in meters (positive = forward).
- * @param rotation The rotation setpoint in radians (CCW+).
+ * @param linear The forward velocity (m/s, positive = forward).
+ * @param angular The angular velocity (rad/s, CCW+).
  */
-void SetMouseSetpoint(Sim *sim, float distance, float rotation);
+void SetMouseVelocity(Sim *sim, float linear, float angular);
 
 /**
  * @brief Reports the agent's estimate of the mouse pose. The UI draws it as an outline
@@ -301,11 +300,10 @@ bool GetEstimatedPose(Sim *sim, Vector2 *position, float *rotation);
 bool ResetSim(Sim *sim);
 
 /**
- * @brief Steps the physics simulation forward by dt seconds.
+ * @brief Steps the physics simulation forward by SIM_TIMESTEP seconds.
  *
  * @param sim The simulation instance to step.
- * @param dt Time step in seconds.
  */
-void UpdateSim(Sim *sim, float dt);
+void UpdateSim(Sim *sim);
 
 #endif // SIM_H

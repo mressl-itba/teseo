@@ -14,6 +14,9 @@
 
 #include "raylib.h"
 
+#include "sim/mouse.h"
+#include "sim/sim.h"
+
 #include "ui.h"
 
 // Layout constants
@@ -75,9 +78,9 @@
 static struct
 {
     const Maze *maze;
-    const Mouse *mouse;
 
     Sim *sim;
+    float time_accumulator; // Real time not yet simulated (seconds)
 } ui;
 
 // Coordinate helpers
@@ -292,7 +295,7 @@ static void DrawPanel()
 
     // Mouse name
 
-    DrawPanelText(ui.mouse->descriptor->name, position.x, position.y);
+    DrawPanelText(GetMouseName(), position.x, position.y);
 
     DrawPanelLine(position.y);
 
@@ -358,10 +361,9 @@ static void DrawPanel()
 
 // Public API
 
-void CreateUI(const Maze *maze, Mouse *mouse)
+void CreateUI(const Maze *maze)
 {
     ui.maze = maze;
-    ui.mouse = mouse;
 
     ui.sim = CreateSim(maze);
 
@@ -382,23 +384,25 @@ bool UpdateUI()
     if (WindowShouldClose())
         return false;
 
-    // Advance simulation
-    float dt = GetFrameTime();
-    if (dt > 0.1f)
-        dt = 0.1f;
+    // Advance simulation in fixed steps, as many as fit in the elapsed real time
+    ui.time_accumulator += std::min(GetFrameTime(), 0.1f);
 
-    if (IsSimRunning(ui.sim))
+    while (ui.time_accumulator >= SIM_TIMESTEP)
     {
-        ui.mouse->descriptor->update(ui.mouse->userdata, ui.sim);
+        if (IsSimRunning(ui.sim))
+        {
+            UpdateMouse(ui.sim);
+            UpdateSim(ui.sim);
+        }
 
-        UpdateSim(ui.sim, dt);
+        ui.time_accumulator -= SIM_TIMESTEP;
     }
 
     // Run / reset
     if (IsKeyPressed(KEY_R))
     {
         if (ResetSim(ui.sim))
-            ui.mouse->descriptor->reset(ui.mouse->userdata, ui.sim);
+            ResetMouse(ui.sim);
     }
 
     // Toggle fullscreen

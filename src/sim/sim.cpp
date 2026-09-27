@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <random>
 
 #include <box2d/box2d.h>
@@ -63,6 +64,9 @@ struct Sim
     bool estimated_pose_valid;
     Vector2 estimated_position;
     float estimated_rotation;
+
+    // Agent's status message
+    char status_text[64];
 };
 
 // Random numbers
@@ -306,6 +310,7 @@ static void ResetMousePhysics(Sim *sim)
     sim->gyroscope_bias = GYROSCOPE_BIAS * RandomGaussian();
 
     sim->estimated_pose_valid = false;
+    sim->status_text[0] = '\0';
 
     b2Body_SetTransform(sim->mouse_body, b2Vec2(position.x, position.y), b2MakeRot(rotation));
     b2Body_SetLinearVelocity(sim->mouse_body, b2Vec2(0.0f, 0.0f));
@@ -574,4 +579,14 @@ bool GetEstimatedPose(Sim *sim, Vector2 *position, float *rotation)
     *rotation = sim->estimated_rotation;
 
     return true;
+}
+
+void SetStatusText(Sim *sim, const char *text)
+{
+    snprintf(sim->status_text, sizeof(sim->status_text), "%s", text);
+}
+
+const char *GetStatusText(Sim *sim)
+{
+    return sim->status_text;
 }

@@ -64,6 +64,8 @@
 #define COLOR_SENSOR_MISS {255, 200, 60, 70}
 #define COLOR_MOUSE_ARROW {255, 200, 60, 255}
 #define COLOR_ESTIMATE {60, 200, 255, 255}
+#define COLOR_STATUS_BACKGROUND {15, 18, 28, 230}
+#define COLOR_STATUS_TEXT {255, 90, 80, 255}
 
 #define COLOR_PANEL_BACKGROUND {15, 18, 28, 255}
 #define COLOR_TITLE {60, 160, 255, 255}
@@ -246,6 +248,21 @@ static void DrawMouseEstimate()
                ESTIMATE_THICKNESS_PIXELS, COLOR_ESTIMATE);
 }
 
+static void DrawStatus()
+{
+    const char *text = GetStatusText(ui.sim);
+    if (!text[0])
+        return;
+
+    int width = MeasureText(text, FONT_SIZE_LARGE / 2);
+    int x = (int)(MAZE_PX - width) / 2;
+    int y = (WINDOW_HEIGHT - FONT_SIZE_LARGE / 2) / 2;
+
+    DrawRectangle(x - PANEL_PADDING, y - PANEL_PADDING, width + 2 * PANEL_PADDING, FONT_SIZE_LARGE / 2 + 2 * PANEL_PADDING,
+                  COLOR_STATUS_BACKGROUND);
+    DrawText(text, x, y, FONT_SIZE_LARGE / 2, COLOR_STATUS_TEXT);
+}
+
 static void DrawPanelText(const char *label, float cx, float &cy, int size = FONT_SIZE_SMALL, Color color = COLOR_TEXT)
 {
     DrawText(label, cx, cy, size, color);
@@ -417,6 +434,7 @@ bool UpdateUI()
     DrawMouseSensors();
     DrawMouse();
     DrawMouseEstimate();
+    DrawStatus();
     DrawPanel();
 
     EndDrawing();

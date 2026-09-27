@@ -44,6 +44,17 @@ El tiempo de cada corrida se cuenta desde que el ratón **abandona la celda inic
 
 Si el ratón se bloquea, es posible reiniciarlo con la tecla `R`.
 
+### Qué ves en pantalla
+
+| Elemento | Significado |
+| -------- | ----------- |
+| Ratón rojo | Dónde está el ratón **de verdad**. |
+| Contorno celeste | Dónde **cree** estar el ratón. Normalmente casi se superpone con el rojo; si se separa mucho, el ratón está por equivocarse de celda. |
+| Rayos amarillos | Los sensores infrarrojos y lo que detectan. |
+| Celdas coloreadas | Lo que pinta tu ratón con `PaintCell`. Útil para depurar. |
+| `Est. error` | Diferencia entre donde el ratón cree estar y donde está: distancia en cm y ángulo en grados. |
+| Cartel "LOST!" | El ratón detectó que se perdió. Presiona `R` para volver a empezar desde la salida. |
+
 ## El movimiento
 
 El ratón se controla con la función:

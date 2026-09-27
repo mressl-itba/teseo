@@ -229,6 +229,15 @@ void SetMouseVelocity(Sim *sim, float linear, float angular);
  */
 void SetEstimatedPose(Sim *sim, Vector2 position, float rotation);
 
+/**
+ * @brief Shows a message over the maze (e.g. "LOST! Press [R]"). An empty string hides it.
+ *        The message is cleared when a run is started with [R].
+ *
+ * @param sim The simulation instance.
+ * @param text The message to show.
+ */
+void SetStatusText(Sim *sim, const char *text);
+
 // This is the end of the agent API.
 // The following functions are used by the UI and must not be called by mouse agents.
 // -----------------------------------------------------------------------------
@@ -288,6 +297,15 @@ float GetMouseRotation(Sim *sim);
  * @return true if the agent reported an estimate since the last reset, false otherwise.
  */
 bool GetEstimatedPose(Sim *sim, Vector2 *position, float *rotation);
+
+/**
+ * @brief Gets the message set by the agent with SetStatusText().
+ *
+ * @param sim The simulation instance to query.
+ *
+ * @return The message (empty if none).
+ */
+const char *GetStatusText(Sim *sim);
 
 /**
  * @brief Starts a new run and resets the mouse.

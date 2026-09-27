@@ -17,7 +17,7 @@
 
 // Simulation step
 
-#define SIM_TIMESTEP 0.002f // s (500 Hz, like a real mouse control loop)
+#define SIM_TIMESTEP 0.001f // s (1 kHz, like a real mouse control loop)
 
 // Rotations
 

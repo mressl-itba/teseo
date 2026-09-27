@@ -44,8 +44,8 @@
 #define NAV_ALIGNED 0.1f                                       // rad, max heading error to trust the IR sensors
 #define NAV_FRONT_RANGE 0.3f                                   // m, max front reading used for corrections
 #define NAV_LATERAL_OUTLIER 0.015f                             // m, larger lateral corrections are discarded
-#define NAV_LATERAL_GAIN 0.05f                                 // Fraction of the lateral error corrected per step
-#define NAV_FRONT_GAIN 0.05f                                   // Fraction of the longitudinal error corrected per step
+#define NAV_LATERAL_RATE 25.0f                                 // 1/s, how fast the lateral error is corrected
+#define NAV_FRONT_RATE 25.0f                                   // 1/s, how fast the longitudinal error is corrected
 #define NAV_HEADING_GAIN 0.2f                                  // Fraction of the heading error corrected per sample
 #define NAV_HEADING_SAMPLE 0.02f                               // m traveled between heading samples
 
@@ -266,7 +266,7 @@ static void CorrectWithWalls(const SimState *state, Vector2 axis, Vector2 normal
 
     if (valid)
     {
-        nav.position = Vector2Add(nav.position, Vector2Scale(normal, NAV_LATERAL_GAIN * (measured - lateral)));
+        nav.position = Vector2Add(nav.position, Vector2Scale(normal, NAV_LATERAL_RATE * SIM_TIMESTEP * (measured - lateral)));
 
         // Heading: how fast the distance to the wall changes along the way
         if (!nav.wall_sample_valid || nav.wall_sample_sides != sides)
@@ -300,7 +300,7 @@ static void CorrectWithWalls(const SimState *state, Vector2 axis, Vector2 normal
         float measured_along = boundary - WALL_HALF_THICKNESS - front;
 
         if (fabsf(measured_along - along) < 0.25f * CELL_SIZE)
-            nav.position = Vector2Add(nav.position, Vector2Scale(axis, NAV_FRONT_GAIN * (measured_along - along)));
+            nav.position = Vector2Add(nav.position, Vector2Scale(axis, NAV_FRONT_RATE * SIM_TIMESTEP * (measured_along - along)));
     }
 }
 

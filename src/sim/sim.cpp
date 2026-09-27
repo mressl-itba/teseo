@@ -33,6 +33,7 @@ struct Sim
     // Maze
     const Maze *maze;
     uint32_t maze_colors[GRID_SIZE][GRID_SIZE];
+    float floor_grip[GRID_SIZE][GRID_SIZE]; // Friction coefficient of each cell
 
     // Box2D world and bodies
     b2WorldId world;
@@ -54,6 +55,7 @@ struct Sim
 
     // Wheel encoders
     float encoder_scale[ENCODER_NUM]; // Scale error of each wheel (fixed per mouse)
+    float wheel_slip[ENCODER_NUM];    // Wheel surface speed minus ground speed (m/s), non-zero when slipping
     Vector2 encoder_last_position;    // Mouse pose at the last encoder update
     float encoder_last_rotation;
 
@@ -288,9 +290,10 @@ static void UpdateEncoders(Sim *sim)
     Vector2 forward = Vector2FromAngle(sim->encoder_last_rotation + 0.5f * delta_rotation);
     float delta_distance = Vector2DotProduct(delta_position, forward);
 
+    // Slipping wheels turn more than the mouse moves, and the encoders count it
     float wheel_delta[ENCODER_NUM] = {
-        delta_distance - delta_rotation * MOUSE_WHEEL_HALF_TRACK,
-        delta_distance + delta_rotation * MOUSE_WHEEL_HALF_TRACK,
+        delta_distance - delta_rotation * MOUSE_WHEEL_HALF_TRACK + sim->wheel_slip[ENCODER_LEFT] * SIM_TIMESTEP,
+        delta_distance + delta_rotation * MOUSE_WHEEL_HALF_TRACK + sim->wheel_slip[ENCODER_RIGHT] * SIM_TIMESTEP,
     };
 
     for (int i = 0; i < ENCODER_NUM; i++)
@@ -365,13 +368,35 @@ static void ApplyDrive(Sim *sim, float left_wheel_target_velocity, float right_w
     float left_force = MOUSE_MOTOR_K * (left_wheel_target_velocity - left_wheel_current_velocity);
     float right_force = MOUSE_MOTOR_K * (right_wheel_target_velocity - right_wheel_current_velocity);
 
+    // Tire grip: each wheel carries half the weight. Beyond the grip, the force is limited and the
+    // (massless) wheel spins until the motor force equals the grip: F = K × (v_target − v_surface).
+    Cell cell = PositionToCell(sim->mouse_position);
+    float grip = ValidateCell(cell) ? sim->floor_grip[cell.x][cell.y] : MOUSE_TIRE_GRIP;
+    float wheel_grip = 0.5f * grip * MOUSE_MASS * GRAVITY;
+
+    sim->wheel_slip[ENCODER_LEFT] = 0.0f;
+    sim->wheel_slip[ENCODER_RIGHT] = 0.0f;
+
+    if (fabsf(left_force) > wheel_grip)
+    {
+        left_force = copysignf(wheel_grip, left_force);
+        sim->wheel_slip[ENCODER_LEFT] = (left_wheel_target_velocity - left_force / MOUSE_MOTOR_K) - left_wheel_current_velocity;
+    }
+
+    if (fabsf(right_force) > wheel_grip)
+    {
+        right_force = copysignf(wheel_grip, right_force);
+        sim->wheel_slip[ENCODER_RIGHT] = (right_wheel_target_velocity - right_force / MOUSE_MOTOR_K) - right_wheel_current_velocity;
+    }
+
     // Apply forward force
     float force_magnitude = left_force + right_force;
     Vector2 forward_force = Vector2Scale(forward, force_magnitude);
     b2Body_ApplyForceToCenter(sim->mouse_body, b2Vec2(forward_force.x, forward_force.y), true);
 
-    // Apply lateral no-slip impulse: cancel velocity perpendicular to heading.
-    float lateral_impulse_magnitude = -0.5f * MOUSE_MASS * lateral_velocity;
+    // Apply lateral friction: cancel velocity perpendicular to heading, up to the tire grip (skid).
+    float lateral_impulse_max = grip * MOUSE_MASS * GRAVITY * SIM_TIMESTEP;
+    float lateral_impulse_magnitude = std::clamp(-MOUSE_MASS * lateral_velocity, -lateral_impulse_max, lateral_impulse_max);
     Vector2 lateral_impulse = Vector2Scale(right, lateral_impulse_magnitude);
     b2Body_ApplyLinearImpulseToCenter(sim->mouse_body, b2Vec2(lateral_impulse.x, lateral_impulse.y), true);
 
@@ -435,6 +460,11 @@ Sim *CreateSim(const Maze *maze)
 
     CreateMazePhysics(sim);
     CreateMousePhysics(sim);
+
+    // Floor grip, fixed for the whole simulation
+    for (int x = 0; x < GRID_SIZE; x++)
+        for (int y = 0; y < GRID_SIZE; y++)
+            sim->floor_grip[x][y] = std::max(MOUSE_TIRE_GRIP + MOUSE_TIRE_GRIP_NOISE * RandomGaussian(), 0.5f);
 
     // Wheel scale errors are a property of the mouse, so they stay the same across runs:
     // a common error (wheel diameter) plus a smaller left/right mismatch.

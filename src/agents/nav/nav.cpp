@@ -24,8 +24,8 @@
 
 // Motion
 
-#define NAV_ACCELERATION 2.0f      // m/s²
 #define NAV_SPEED_MIN 0.05f        // m/s, final approach speed
+#define NAV_BRAKE_MARGIN 0.7f      // Braking is planned with this fraction of the acceleration, to stop in time
 #define NAV_DRIVE_DONE 0.002f      // m, distance to the cell center to finish a straight line
 #define NAV_TURN_SPEED_MAX 6.0f    // rad/s
 #define NAV_TURN_ACCELERATION 30.0f // rad/s²
@@ -85,6 +85,7 @@ static struct
     float velocity;
     float angular_velocity;
     float max_speed;
+    float acceleration;
     float stall_time;
 
     // Last side wall measurement, for the heading correction
@@ -348,7 +349,7 @@ static void UpdateTurn(Sim *sim, const SimState *state)
     }
 
     // Fastest rotation that can still stop in time
-    float speed = std::min(NAV_TURN_SPEED_MAX, sqrtf(2.0f * NAV_TURN_ACCELERATION * fabsf(error)));
+    float speed = std::min(NAV_TURN_SPEED_MAX, sqrtf(2.0f * NAV_BRAKE_MARGIN * NAV_TURN_ACCELERATION * fabsf(error)));
     float target = copysignf(speed, error);
     float max_change = NAV_TURN_ACCELERATION * SIM_TIMESTEP;
 
@@ -390,24 +391,29 @@ static void UpdateDrive(Sim *sim, const SimState *state)
         remaining = -Vector2DotProduct(offset, axis);
     }
 
-    if (remaining < NAV_DRIVE_DONE)
+    if (fabsf(remaining) < NAV_DRIVE_DONE && fabsf(nav.velocity) <= NAV_SPEED_MIN)
     {
         Arrive(sim, state);
         return;
     }
 
-    // Trapezoidal speed profile: accelerate up to the maximum speed, brake in time to stop
-    float speed = std::min(nav.max_speed, sqrtf(2.0f * NAV_ACCELERATION * remaining));
-    speed = std::max(speed, NAV_SPEED_MIN);
-    nav.velocity = std::min(nav.velocity + NAV_ACCELERATION * SIM_TIMESTEP, speed);
+    // Trapezoidal speed profile: accelerate up to the maximum speed, brake in time to stop.
+    // The speed never changes faster than the acceleration, even when the estimate jumps:
+    // braking harder would make the wheels slip. If the mouse overshoots, it backs up.
+    float speed = std::min(nav.max_speed, sqrtf(2.0f * NAV_BRAKE_MARGIN * nav.acceleration * fabsf(remaining)));
+    speed = copysignf(std::max(speed, NAV_SPEED_MIN), remaining);
+    float max_change = nav.acceleration * SIM_TIMESTEP;
+    nav.velocity += std::clamp(speed - nav.velocity, -max_change, max_change);
 
-    // Steer towards the center line
+    // Steer towards the center line (reversed when backing up)
     float heading_target = -std::clamp(NAV_STEER_LATERAL * lateral, -NAV_STEER_HEADING_MAX, NAV_STEER_HEADING_MAX);
+    if (nav.velocity < 0.0f)
+        heading_target = -heading_target;
     nav.angular_velocity = NAV_STEER_GAIN * (heading_target - heading_error);
 
     // Stalled: trying to drive, but the encoders say it does not move
     float encoder_speed = fabsf(GetEncoderDistance(state) - nav.encoder_distance_last) / SIM_TIMESTEP;
-    if (nav.velocity > 2.0f * NAV_SPEED_MIN && encoder_speed < 0.01f)
+    if (fabsf(nav.velocity) > 2.0f * NAV_SPEED_MIN && encoder_speed < 0.01f)
         nav.stall_time += SIM_TIMESTEP;
     else
         nav.stall_time = 0.0f;
@@ -440,7 +446,7 @@ void NavReset(Sim *sim)
     nav.wall_sample_valid = false;
 
     if (nav.max_speed == 0.0f)
-        nav.max_speed = NAV_SPEED_DEFAULT;
+        NavSetSpeed(NAV_SPEED_DEFAULT, NAV_ACCELERATION_DEFAULT);
 
     memset(nav.seen, 0, sizeof(nav.seen));
 
@@ -517,7 +523,8 @@ void NavFollowPath(const Heading *path, int count)
     nav.path_index = 0;
 }
 
-void NavSetSpeed(float max_speed)
+void NavSetSpeed(float max_speed, float acceleration)
 {
     nav.max_speed = std::clamp(max_speed, NAV_SPEED_MIN, MOUSE_WHEEL_VELOCITY_MAX);
+    nav.acceleration = std::max(acceleration, 0.1f);
 }

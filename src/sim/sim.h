@@ -62,11 +62,18 @@
 #define MOUSE_WHEEL_FORCE_MAX 0.5f                                       // N
 #define MOUSE_MOTOR_K (MOUSE_WHEEL_FORCE_MAX / MOUSE_WHEEL_VELOCITY_MAX) // N·s/m (k_t·k_e / R·r²)
 
+// Tire grip: maximum friction force = grip × weight. Beyond it, the wheels slip.
+// The grip changes from cell to cell (dust on the floor), and stays the same across runs.
+
+#define GRAVITY 9.81f               // m/s²
+#define MOUSE_TIRE_GRIP 1.0f        // Mean friction coefficient between tires and floor
+#define MOUSE_TIRE_GRIP_NOISE 0.15f // Stddev of the friction coefficient between cells
+
 // Velocity controller (the motor driver: tracks the velocities set with SetMouseVelocity,
 // measuring them with the wheel encoders and the gyroscope)
 
-#define MOUSE_VELOCITY_KP 16.0f  // Proportional gain (dimensionless)
-#define MOUSE_VELOCITY_KI 120.0f // Integral gain (1/s)
+#define MOUSE_VELOCITY_KP 8.0f  // Proportional gain (dimensionless)
+#define MOUSE_VELOCITY_KI 40.0f // Integral gain (1/s)
 
 // Sensor errors
 // The velocity controller relies on the encoders and the gyroscope,

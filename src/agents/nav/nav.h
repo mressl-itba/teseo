@@ -33,7 +33,8 @@ enum Heading
 
 #define NAV_PATH_MAX (GRID_SIZE * GRID_SIZE) // Maximum number of moves in a path
 
-#define NAV_SPEED_DEFAULT 0.5f // m/s
+#define NAV_SPEED_DEFAULT 0.5f        // m/s
+#define NAV_ACCELERATION_DEFAULT 2.0f // m/s²
 
 /**
  * @brief Returns the wall bit (WALL_NORTH, WALL_EAST, ...) in the given direction.
@@ -98,10 +99,12 @@ uint8_t NavGetWalls();
 void NavFollowPath(const Heading *path, int count);
 
 /**
- * @brief Sets the maximum speed on straight lines. Faster is riskier.
+ * @brief Sets the maximum speed and acceleration on straight lines. Faster is riskier:
+ *        with too much acceleration the wheels slip and the mouse misjudges its position.
  *
  * @param max_speed The maximum speed (m/s), NAV_SPEED_DEFAULT by default.
+ * @param acceleration The acceleration and braking (m/s²), NAV_ACCELERATION_DEFAULT by default.
  */
-void NavSetSpeed(float max_speed);
+void NavSetSpeed(float max_speed, float acceleration);
 
 #endif // NAV_H

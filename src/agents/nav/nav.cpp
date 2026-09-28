@@ -171,9 +171,13 @@ static uint8_t ReadWalls(const SimState *state)
     if (state->ir_sensors[IR_SENSOR_RIGHT] < NAV_WALL_DETECT)
         walls |= HeadingToWall(RotateHeading(nav.heading, 1));
 
-    // Behind is open (the mouse came from there), except at the maze border
+    // Behind: as seen before if the mouse has been here (it may have turned without moving),
+    // else open (the mouse came from there), except at the maze border
     Heading back = RotateHeading(nav.heading, 2);
-    if (!ValidateCell(GetNeighborCell(nav.cell, back)))
+    Cell cell = nav.cell;
+    if (ValidateCell(cell) && nav.seen[cell.x][cell.y])
+        walls |= nav.seen_walls[cell.x][cell.y] & HeadingToWall(back);
+    else if (!ValidateCell(GetNeighborCell(cell, back)))
         walls |= HeadingToWall(back);
 
     return walls;
@@ -229,7 +233,12 @@ static void Arrive(Sim *sim, const SimState *state)
     nav.velocity = 0.0f;
     nav.angular_velocity = 0.0f;
 
-    nav.cell = PositionToCell(nav.position);
+    // Retries count the times the mouse gets stuck without reaching a new cell
+    Cell cell = PositionToCell(nav.position);
+    if (cell.x != nav.cell.x || cell.y != nav.cell.y)
+        nav.retries = 0;
+
+    nav.cell = cell;
     nav.walls = ReadWalls(state);
 
     CheckWalls(sim);
@@ -595,7 +604,7 @@ uint8_t NavGetWalls()
 
 void NavFollowPath(const Heading *path, int count)
 {
-    if (nav.mode == NAV_LOST)
+    if (!NavIsIdle())
         return;
 
     count = std::clamp(count, 0, NAV_PATH_MAX);
@@ -603,7 +612,6 @@ void NavFollowPath(const Heading *path, int count)
     memcpy(nav.path, path, count * sizeof(Heading));
     nav.path_length = count;
     nav.path_index = 0;
-    nav.retries = 0;
 }
 
 void NavSetSpeed(float max_speed, float acceleration)

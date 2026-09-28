@@ -4,10 +4,13 @@
  *
  * @brief Moves the mouse from cell to cell and keeps track of where it is.
  *
- *        The mouse estimates its own position with its sensors (wheel encoders,
- *        gyroscope and IR sensors) and corrects its errors by itself.
- *        NavGetCell() tells where the mouse BELIEVES it is: at the default speed
- *        it is always right, but at higher speeds it may get lost.
+ *        This layer does the "magic" for you: the mouse estimates its own position with
+ *        its sensors (wheel encoders, gyroscope and IR sensors) and corrects its errors
+ *        by itself. You only work with cells, headings and walls.
+ *
+ *        But everything it tells you is what the mouse BELIEVES, not the truth.
+ *        At the default speed the belief is very reliable; at higher speeds the wheels
+ *        may slip and the mouse may get lost (NavIsLost()).
  *
  *        You can use this layer as is, or modify it to make the mouse faster.
  * @author Theseús the hero
@@ -73,25 +76,29 @@ bool NavIsIdle();
 bool NavIsLost();
 
 /**
- * @brief Returns the cell where the mouse believes it is.
+ * @brief Returns the cell where the mouse believes it is. While moving, it is the cell where
+ *        the mouse last stopped: it is updated when the mouse stops again.
  */
 Cell NavGetCell();
 
 /**
- * @brief Returns the direction the mouse believes it is facing.
+ * @brief Returns the direction the mouse believes it is facing (updated like NavGetCell()).
  */
 Heading NavGetHeading();
 
 /**
  * @brief Returns the walls of the current cell (WALL_NORTH | WALL_EAST | ...), as seen by the
  *        IR sensors when the mouse stopped there. Only valid while NavIsIdle() is true.
+ *        Walls are only read where the mouse stops: the cells it drives through without
+ *        stopping are not read.
  */
 uint8_t NavGetWalls();
 
 /**
  * @brief Moves the mouse along a path: each element is the direction of the next cell.
  *        Consecutive moves in the same direction are driven as one fast straight line.
- *        If a wall blocks the path, the mouse stops at the last reachable cell.
+ *        If a wall blocks the path (or the mouse gets stuck), the path ends early: compare
+ *        NavGetCell() with the destination to find out. Ignored unless NavIsIdle() is true: wait until the mouse stops before giving a new path.
  *
  * @param path The directions of the moves.
  * @param count The number of moves (at most NAV_PATH_MAX).

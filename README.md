@@ -22,11 +22,23 @@ El laberinto ya está generado. La física, los sensores y el rendering ya funci
 
 ## El simulador
 
-Ejecuta el simulador con:
+### Compilar
+
+Para compilar desde línea de comando:
 
 ```bash
-teseo --gen 0         # laberinto generado con semilla 0
-teseo --file abc.maze # laberinto cargado desde archivo
+cmake -B build
+cmake --build build
+```
+
+CMake descarga y compila solo las dependencias (raylib y Box2D). Cada archivo `.cpp` de `src/agents/` es un ratón distinto y genera su propio ejecutable con el mismo nombre: `starter_mouse`, `keyboard_mouse` y, más adelante, el tuyo.
+
+### Ejecutar
+
+```bash
+starter_mouse --gen 0                    # laberinto generado con semilla 0
+starter_mouse --file mazes/abc.txt       # laberinto cargado desde archivo
+starter_mouse --gen 0 --noise-seed 1234  # repite exactamente una ejecución anterior
 ```
 
 Puedes descargar laberintos oficiales de competencias aquí:
@@ -34,53 +46,250 @@ Puedes descargar laberintos oficiales de competencias aquí:
 - [micromouseonline/mazefiles](https://github.com/micromouseonline/mazefiles)
 - [tcp4me.com - Micromouse Mazes](https://www.tcp4me.com/mmr/mazes/)
 
-Presiona `R` para iniciar la primera corrida.
+Los sensores y los motores tienen errores aleatorios (ver [Creencia y realidad](#creencia-y-realidad)), así que dos ejecuciones con el mismo laberinto no son idénticas. Al arrancar, el simulador imprime la **semilla de ruido** que usó: si pasa algo raro, puedes repetir esa misma ejecución con `--noise-seed`.
+
+| Tecla | Acción |
+| ----- | ------ |
+| `R` | Inicia una corrida desde la celda de salida. |
+| `F11` | Pantalla completa. |
+
+### Reglas
 
 El laberinto sigue el estándar **IEEE Micromouse de 16x16 celdas** (18 cm cada una). El ratón arranca en la esquina suroeste `(0, 0)`, orientado al norte. El objetivo es el cuadrado central de **2x2 celdas**.
 
-Dispones de **5 corridas** y **300 segundos** de tiempo total. Cuenta la mejor marca individual.
+Dispones de **5 corridas** y **300 segundos** de tiempo total. Cuenta la mejor marca individual. La competencia se corre en un laberinto sorpresa.
 
-El tiempo de cada corrida se cuenta desde que el ratón **abandona la celda inicial** hasta que **llega a cualquiera de las cuatro celdas centrales**. Al terminar una corrida, el ratón debe **regresar autónomamente al origen** para luego iniciar la siguiente.
+El tiempo de cada corrida se cuenta desde que el ratón **abandona la celda inicial** hasta que **llega a cualquiera de las cuatro celdas centrales**. Al terminar una corrida, el ratón debe **regresar autónomamente al origen**: al llegar, la siguiente corrida empieza sola.
 
-Si el ratón se bloquea, es posible reiniciarlo con la tecla `R`.
+Si el ratón se pierde o se traba, presiona `R` para volver a empezar desde la salida. Pero cuidado: **cada `R` consume una de las 5 corridas**.
+
+Chocar no tiene penalización, pero tiene consecuencias: el ratón pierde tiempo y puede desorientarse.
+
+### Juego limpio
+
+Tu ratón debe resolver el laberinto como un robot real: solo con lo que perciben sus sensores. Por eso, tu código no puede:
+
+- Usar funciones del simulador que no aparezcan en este documento.
+- Acceder al estado interno del simulador.
+
+Sí puedes recordar lo que aprendió tu ratón en las corridas anteriores. Si dudas de si algo está permitido, pregunta.
 
 ### Qué ves en pantalla
 
 | Elemento | Significado |
 | -------- | ----------- |
-| Ratón rojo | Dónde está el ratón **de verdad**. |
-| Contorno celeste | Dónde **cree** estar el ratón. Normalmente casi se superpone con el rojo; si se separa mucho, el ratón está por equivocarse de celda. |
+| Ratón naranja | Dónde está el ratón **de verdad**. |
+| Contorno celeste | Dónde **cree** estar el ratón. Normalmente se superpone con el naranja; si se separa mucho, el ratón va a tomar decisiones equivocadas. |
 | Rayos amarillos | Los sensores infrarrojos y lo que detectan. |
 | Celdas coloreadas | Lo que pinta tu ratón con `PaintCell`. Útil para depurar. |
-| `Est. error` | Diferencia entre donde el ratón cree estar y donde está: distancia en cm y ángulo en grados. |
-| Cartel "LOST!" | El ratón detectó que se perdió. Presiona `R` para volver a empezar desde la salida. |
+| `Est. error` | La diferencia entre donde el ratón está y donde cree estar: distancia en cm y ángulo en grados. |
+| Cartel "LOST!" | La capa detectó que el ratón se perdió. Presiona `R` para volver a empezar desde la salida. |
 
-## El movimiento
+## Tu ratón
 
-El ratón se controla con la función:
+### Crear tu ratón
+
+1. Copia `src/agents/starter_mouse.cpp` a `src/agents/mi_raton.cpp` (usa el nombre de tu equipo).
+2. Cambia el nombre que devuelve `GetMouseName()`.
+3. Vuelve a compilar: va a aparecer el ejecutable `mi_raton`.
+
+### Las tres funciones
+
+Tu ratón es un archivo `.cpp` que implementa tres funciones (declaradas en `src/sim/mouse.h`):
 
 ```cpp
-void SetMouseSetpoint(Sim *sim, float distance, float rotation);
+const char *GetMouseName();   // El nombre de tu ratón
+void ResetMouse(Sim *sim);    // Se llama al presionar R
+void UpdateMouse(Sim *sim);   // Se llama 1000 veces por segundo de simulación
 ```
 
-- `distance`: metros a avanzar hacia adelante (positivo = adelante).
-- `rotation`: rotación en radianes respecto de la orientación actual (positivo = izquierda). Puedes usar las constantes `TURN_CCW`, `TURN_CW` y `TURN_REVERSE`.
+`ResetMouse` se llama solo cuando presionas `R`: al arrancar, y si tienes que reiniciar el ratón a mano. Las corridas siguientes empiezan solas cuando el ratón vuelve a la salida, sin llamarla.
 
-Cuánto más lejos pongas el setpoint, más rápido se moverá el mouse.
+## La capa de navegación
 
-⚠️ **Importante**: el simulador introduce **error de odometría**. No asumas que el ratón termina exactamente donde le pediste.
+Mover un ratón real es difícil: hay que controlar los motores y estimar la posición con sensores imperfectos. Para que no tengas que ocuparte de eso, te damos una **capa de navegación** (`src/agents/nav/nav.h`): tú solo tienes que decir a dónde ir. Puedes usarla tal cual o mejorarla (ver el [apéndice](#apéndice-la-capa-de-bajo-nivel)).
 
-## Los sensores
+La capa maneja al ratón como si recorriera un grafo: las celdas son los nodos, y dos celdas vecinas están conectadas si no hay pared entre ellas. El ratón se detiene en el centro de una celda, y tú le indicas por qué conexiones seguir. Solo necesitas trabajar con **celdas**, **direcciones** y **paredes**.
 
-Puedes leer el estado de los sensores con:
+### Direcciones y paredes
+
+```cpp
+enum Heading { HEADING_NORTH, HEADING_EAST, HEADING_SOUTH, HEADING_WEST };
+```
+
+Las direcciones están en orden horario: `(heading + 1) % 4` es la derecha, `(heading + 2) % 4` es atrás y `(heading + 3) % 4` es la izquierda.
+
+Las paredes de una celda son una máscara de bits: `WALL_NORTH | WALL_EAST | WALL_SOUTH | WALL_WEST`. `HeadingToWall(heading)` convierte una dirección en su bit, y `GetNeighborCell(cell, heading)` devuelve la celda vecina en esa dirección.
+
+Una celda es `Cell { int32_t x, y; }`, con `(0, 0)` en la esquina suroeste; `x` crece hacia el este e `y` hacia el norte.
+
+### Funciones
+
+| Función | Qué hace |
+| ------- | -------- |
+| `NavReset(sim)` | Reinicia la navegación: el ratón está en `(0, 0)` mirando al norte. Llámala en `ResetMouse`. |
+| `NavUpdate(sim)` | Estima la posición y mueve los motores. Llámala al principio de `UpdateMouse`. |
+| `NavIsIdle()` | `true` cuando el ratón terminó el camino y está quieto en el centro de una celda. |
+| `NavIsLost()` | `true` si la capa detectó que el ratón se perdió. Se queda quieto: presiona `R`. |
+| `NavGetCell()` | La celda donde el ratón cree estar. |
+| `NavGetHeading()` | La dirección hacia la que el ratón cree mirar. |
+| `NavGetWalls()` | Las paredes de la celda actual, vistas por los sensores al detenerse. |
+| `NavFollowPath(path, count)` | Recorre un camino: cada elemento es la dirección de la próxima celda. |
+| `NavSetSpeed(max_speed, acceleration)` | Velocidad de crucero y aceleración en las rectas (ver [Velocidad y riesgo](#velocidad-y-riesgo)). |
+
+Algunos detalles importantes:
+
+- **Planifica solo cuando el ratón está quieto.** `NavFollowPath` se ignora mientras `NavIsIdle()` sea `false`. `NavGetCell()` y `NavGetHeading()` se actualizan cuando el ratón se detiene, y `NavGetWalls()` solo es válido mientras está quieto.
+- **Las paredes solo se leen donde el ratón se detiene.** Si le das un camino de varias celdas, las celdas intermedias se atraviesan sin leer sus paredes. Para explorar, avanza de a una celda; para correr por un camino conocido, dale el camino completo.
+- **Las rectas son rápidas y los giros son lentos.** Los movimientos consecutivos en la misma dirección se recorren como una sola recta, acelerando y frenando una sola vez. Para girar, el ratón se detiene en el centro de la celda y gira en el lugar.
+- **El camino puede terminar antes.** Si aparece una pared en el camino (o el ratón se traba), el ratón se detiene en la última celda alcanzable. Compara `NavGetCell()` con el destino para saberlo.
+
+### Ejemplo: el starter mouse
+
+El ratón de ejemplo (`src/agents/starter_mouse.cpp`) sigue la pared de la derecha:
+
+```cpp
+void ResetMouse(Sim *sim)
+{
+    NavReset(sim);
+    ResetCellColors(sim);
+}
+
+void UpdateMouse(Sim *sim)
+{
+    NavUpdate(sim);
+
+    // Wait until the mouse stops at a cell
+    if (!NavIsIdle() || NavIsLost())
+        return;
+
+    Cell cell = NavGetCell();
+    Heading heading = NavGetHeading();
+    uint8_t walls = NavGetWalls();
+
+    PaintCell(sim, cell, COLOR_CELL_VISITED);
+
+    Heading right = (Heading)((heading + 1) % 4);
+    Heading left = (Heading)((heading + 3) % 4);
+    Heading back = (Heading)((heading + 2) % 4);
+
+    Heading next;
+    if (!(walls & HeadingToWall(right)))
+        next = right;
+    else if (!(walls & HeadingToWall(heading)))
+        next = heading;
+    else if (!(walls & HeadingToWall(left)))
+        next = left;
+    else
+        next = back;
+
+    NavFollowPath(&next, 1);
+}
+```
+
+Es simple, pero lento, y en algunos laberintos puede entrar en bucles infinitos.
+
+`UpdateMouse` se llama 1000 veces por segundo, pero tu algoritmo solo necesita pensar cuando el ratón se detiene en una celda. Aun así, cuida la complejidad de lo que calculas en cada parada: un algoritmo lento hace que la simulación vaya más lenta que el tiempo real.
+
+### Otras funciones útiles
+
+| Función | Qué hace |
+| ------- | -------- |
+| `PaintCell(sim, cell, color)` | Pinta una celda. Colores: `COLOR_CELL_DEFAULT`, `COLOR_CELL_VISITED`, `COLOR_CELL_RED`, `COLOR_CELL_GREEN`, `COLOR_CELL_BLUE`. |
+| `GetCellColor(sim, cell)` | El color de una celda. |
+| `ResetCellColors(sim)` | Vuelve todas las celdas al color original. |
+| `SetStatusText(sim, text)` | Muestra un mensaje sobre el laberinto (`""` lo oculta). |
+| `GetSimState(sim)` | El estado de la competencia: `run_number`, `run_state`, `run_time`, `run_time_best`, `time` (ver el [apéndice](#apéndice-la-capa-de-bajo-nivel)). |
+| `ValidateCell(cell)`, `IsStartCell(cell)`, `IsGoalCell(cell)` | Si una celda está dentro del laberinto, es la salida o es una de las cuatro de la meta. |
+
+## Creencia y realidad
+
+Todo lo que te dice la capa de navegación es su **creencia**, no la realidad.
+
+Como en un robot real, la capa no sabe dónde está el ratón: lo **estima** con sus sensores. Usa tres: **encoders** en las ruedas, que miden cuánto avanzó; un **giróscopo**, que mide cuánto giró; y **sensores infrarrojos**, que miden la distancia a las paredes.
+
+Ningún sensor es perfecto. Las ruedas patinan un poco y su diámetro real no es exactamente el nominal, así que los encoders se equivocan un poco en cada movimiento. El giróscopo tiene un pequeño sesgo, y su error también se acumula. La capa de navegación corrige esos errores continuamente con los infrarrojos, usando las paredes como referencia.
+
+El contorno celeste en pantalla es esa creencia, y `Est. error` es cuánto se equivoca. A la velocidad por defecto la creencia es muy confiable. Pero si el error crece demasiado, la capa puede creer que el ratón está en una celda cuando en realidad está en otra, y atribuirle las paredes a la celda equivocada.
+
+La capa vigila esto: recuerda las paredes que vio en cada celda, y si alguna vez ve algo que contradice lo que vio antes, se da cuenta de que el ratón está perdido, lo detiene y muestra "LOST!". A partir de ahí solo queda presionar `R`.
+
+Tu mapa del laberinto también se construye con la creencia de la capa. Si el ratón se pierde, puede que tu mapa tenga algún error: la capa no siempre se da cuenta en el mismo momento en que se equivocó.
+
+## Velocidad y riesgo
+
+En las rectas, la capa acelera hasta una **velocidad de crucero**, la mantiene y frena antes de llegar. Por defecto, la velocidad de crucero es 0,5 m/s y la aceleración, 2 m/s²: valores seguros. Puedes cambiarlos con `NavSetSpeed(max_speed, acceleration)`. Los motores llegan hasta 1,5 m/s, así que esa es la velocidad de crucero más alta posible.
+
+Pero acelerar más tiene un riesgo: si los motores empujan demasiado, **las ruedas patinan** y giran más de lo que avanza el ratón. Como los encoders cuentan vueltas de rueda, la capa se equivoca al estimar la posición. Si el error crece mucho, el ratón se pierde. Cuánto arriesgar es decisión tuya.
+
+## Tu misión
+
+Programa un ratón que llegue al centro lo más rápido posible. Algunas ideas:
+
+- **Flood Fill** (el más usado en competencias reales).
+- **Dead-end filling**.
+- **BFS / Dijkstra / A\*** sobre el mapa conocido.
+- **Estrategia multi-corrida**: explorar en las primeras corridas y recorrer el camino óptimo en las últimas.
+
+Un detalle: el camino con menos celdas no siempre es el más rápido. Las rectas largas son mucho más rápidas que los giros.
+
+## Entrega
+
+Debes entregar:
+
+- El código de tu ratón.
+- Un archivo `ENTREGA.md` donde documentes:
+  - Nombre del equipo y del ratón.
+  - Descripción del algoritmo implementado.
+  - Mejor tiempo logrado (indica el laberinto que usaste: la semilla o el archivo).
+  - Complejidad temporal y espacial de tu algoritmo.
+  - Dificultades encontradas y cómo las resolviste.
+  - Reflexión: ¿qué limitaciones tiene tu solución? ¿Qué mejorarías?
+
+## Recomendaciones
+
+- Prueba el **keyboard mouse** (`WASD`) con el laberinto `mazes/empty_maze.txt` para adquirir intuición de la física. Recuerda presionar `R` para iniciar la corrida.
+- Empieza con el starter mouse y asegúrate de entender cómo funciona antes de intentar algo más complejo.
+- Usa `PaintCell` para depurar: por ejemplo, pinta las distancias de tu flood fill o el camino que planeas.
+- Prueba con múltiples semillas (`--gen`) y laberintos oficiales. Cuando algo falle, anota la semilla de ruido para poder repetirlo.
+- Usa Git y haz commits con frecuencia.
+
+## Bonus points 🚀
+
+- Ajusta la velocidad según el tramo: por ejemplo, más rápido en las rectas largas.
+- Mejora la capa de navegación (ver el apéndice): giros en arco sin detenerse, recorridos en **diagonal**…
+
+## Referencias
+
+- [The Fastest Maze-Solving Competition On Earth](https://www.youtube.com/watch?v=ZMQbHMgK2rw)
+- [Claude Shannon — Theseus, the maze-solving mouse (film, 1952)](https://www.youtube.com/watch?v=_9_AEVQ_p74)
+
+## Apéndice: la capa de bajo nivel
+
+Esta sección es **opcional**. Solo la necesitas si quieres modificar la capa de navegación (`src/agents/nav/`) o reemplazarla por la tuya. Es el camino de los equipos de Micromouse reales: girar sin detenerse, recorrer diagonales, acelerar al límite de la adherencia. Es difícil: hazlo solo cuando tu ratón ya llegue al centro de forma confiable.
+
+Puedes modificar `src/agents/nav/` directamente: el comentario al principio de `nav.cpp` explica cómo funciona. Todos los ratones de `src/agents/` la comparten, así que verifica que el starter mouse siga funcionando.
+
+### Los motores
+
+```cpp
+void SetMouseVelocity(Sim *sim, float linear, float angular);
+```
+
+- `linear`: velocidad hacia adelante (m/s, positivo = adelante).
+- `angular`: velocidad angular (rad/s, positivo = izquierda).
+
+El controlador de los motores intenta mantener esas velocidades hasta que las cambies. Cada rueda tiene un máximo de 1,5 m/s. Si la fuerza necesaria supera la adherencia, las ruedas patinan.
+
+### Los sensores
 
 ```cpp
 const SimState *s = GetSimState(sim);
 ```
 
-### Infrarrojos
+#### Infrarrojos
 
-El ratón cuenta con **5 sensores de distancia** que apuntan en distintas direcciones y miden la distancia en metros desde el centro del robot hasta la pared más cercana:
+El ratón cuenta con **5 sensores de distancia** que miden la distancia en metros desde el centro del robot hasta la pared más cercana:
 
 | Constante | Dirección |
 | --------- | --------- |
@@ -92,138 +301,46 @@ El ratón cuenta con **5 sensores de distancia** que apuntan en distintas direcc
 
 ```cpp
 s->ir_sensors[IR_SENSOR_FRONT]  // distancia al frente (m)
-s->ir_sensors[IR_SENSOR_LEFT]   // distancia a la izquierda (m)
-// ...
 ```
 
-El alcance máximo es **1 m**. Si no hay pared en rango, el sensor devuelve `1.0`.
+El alcance máximo es **25 cm**: si no hay pared en rango, el sensor devuelve `0.25`. La lectura tiene ruido, que crece con el cuadrado de la distancia (≈1 mm a 6 cm, ≈2 cm a 25 cm). Además, cada pared refleja la luz un poco distinto, y los postes solitarios (las columnas entre paredes) reflejan mucho menos: el sensor los ve casi al doble de su distancia real.
 
-### IMU
-
-La **IMU** (Inertial Measurement Unit) mide el movimiento propio del ratón.
+#### Encoders
 
 ```cpp
-s->accelerometer  // Vector2 (m/s²): y=adelante, x=derecha
-s->gyroscope      // float (rad/s, CCW+): velocidad angular
+s->encoders[ENCODER_LEFT]   // distancia recorrida por la rueda izquierda (m, positivo = adelante)
+s->encoders[ENCODER_RIGHT]  // distancia recorrida por la rueda derecha (m)
 ```
 
-Como en un giróscopo real, la lectura tiene un pequeño **sesgo** (bias) que cambia en cada corrida y deriva lentamente. Si lo integras para estimar la orientación, el error crece con el tiempo.
+El promedio de ambos es cuánto avanzó el ratón, y su diferencia dividida por la trocha (`MOUSE_WHEEL_TRACK`, 70 mm) es cuánto giró. Se ponen en cero con cada `R`. Sus errores:
 
-### Encoders
+- El diámetro real de las ruedas difiere del nominal (≈7 mm/m, distinto para cada rueda). Es el mismo error en todas las corridas.
+- Las ruedas patinan un poco todo el tiempo, y mucho si aceleras demasiado.
+- No registran el deslizamiento lateral, por ejemplo al rozar una pared.
 
-Cada rueda tiene un **encoder** que mide cuánto avanzó desde el último reset:
+#### IMU
 
 ```cpp
-s->encoders[ENCODER_LEFT]   // float (m): distancia recorrida por la rueda izquierda (positivo = adelante)
-s->encoders[ENCODER_RIGHT]  // float (m): distancia recorrida por la rueda derecha
+s->gyroscope      // velocidad angular (rad/s, positivo = izquierda)
+s->accelerometer  // Vector2 (m/s²): y = adelante, x = derecha
 ```
 
-El promedio de ambos es cuánto avanzó el ratón, y su diferencia dividida por la trocha (`MOUSE_WHEEL_TRACK`, 70 mm) es cuánto giró. Pero los encoders no son perfectos: el diámetro real de las ruedas difiere un poco del nominal (el mismo error en todas las corridas), las ruedas patinan un poco, y no registran el deslizamiento lateral, por ejemplo al rozar una pared. El controlador de movimiento usa los mismos encoders, así que "avanzar 18 cm" significa que los encoders marcan 18 cm.
+El giróscopo tiene un pequeño **sesgo** (≈0,05°/s) que cambia en cada corrida y deriva lentamente. Si lo integras para estimar la orientación, el error crece con el tiempo. El acelerómetro incluye la aceleración centrípeta de los giros.
 
-### Setpoint
-
-El **setpoint** es el objetivo de movimiento que le pediste al controlador con `SetMouseSetpoint(...)`. Estos campos indican cuánto falta para completar ese comando.
+### El estado de la competencia
 
 ```cpp
-s->setpoint_distance  // float (m): distancia restante (positivo = falta avanzar)
-s->setpoint_rotation  // float (rad, CCW+): rotación restante
+s->time           // Tiempo total (s)
+s->run_number     // Número de corrida actual (1 a 5)
+s->run_state      // RUNSTATE_IDLE (en la salida) / RUNSTATE_RUNNING / RUNSTATE_RETURNING
+s->run_time       // Tiempo de la corrida actual (s)
+s->run_time_best  // Mejor tiempo hasta ahora (0 = ninguno)
 ```
 
-Puedes cambiar el setpoint en todo momento.
-
-### Estado de la simulación
+### Tu estimación
 
 ```cpp
-s->time;          // Tiempo total de simulación
-s->run_number;    // Número de corrida actual
-s->run_state;     // idle (en celda inicial) / running / returning
-s->run_time;      // Tiempo de la corrida actual
-s->run_time_best; // Mejor tiempo hasta ahora
+void SetEstimatedPose(Sim *sim, Vector2 position, float rotation);
 ```
 
-## Tu misión
-
-Implementa tu propio agente en una carpeta nueva dentro de `src/`. Puedes copiar `src/starter_mouse/` como punto de partida.
-
-### API del agente
-
-Debes implementar la estructura `MouseDescriptor`:
-
-```cpp
-struct MouseDescriptor {
-    const char *name;
-    void *(*create)();                          // inicialización
-    void (*destroy)(void *userdata);            // liberación de memoria
-    void (*update)(void *userdata, Sim *sim);   // lógica principal, llamada cada frame
-    void (*reset)(void *userdata, Sim *sim);    // llamado en la primera corrida y cuando se resetea el ratón
-};
-```
-
-Dentro de `update` puedes usar estas funciones:
-
-- `GetSimState(sim)`
-- `SetMouseSetpoint(sim, distance, rotation)`
-- `AngleDiff(source, target)`
-- `Vector2 Vector2FromAngle(angle, length);`
-- `PositionToCell(position);`
-- `PaintCell(sim, cell, color);`
-- `GetCellColor(sim, cell);`
-- `ResetCellColors(sim);`
-- `SetEstimatedPose(sim, position, rotation);`
-
-No puedes acceder a los campos internos de `sim` ni a las otras funciones del simulador.
-
-### Cómo registrar tu agente
-
-1. Copia `src/starter_mouse/` a `src/tu_equipo/`.
-2. Renombra los archivos, la struct interna y la variable `MouseDescriptor`.
-3. Agrega tu `.cpp` en `CMakeLists.txt`.
-4. Incluye tu header en `src/main.cpp` y regístralo con `CreateMouse()`.
-
-### Estrategias posibles
-
-El **starter mouse** implementa un simple seguidor de pared derecha. Es útil para comenzar, pero poco eficiente y puede atascarse en bucles.
-
-Algunas ideas mejores:
-
-- **Flood Fill** (el más usado en competencias reales)
-- **Dead-end filling**
-- **Dijkstra / A\*** sobre el mapa conocido
-- **Estrategia multi-corrida**: explorar en las primeras corridas y ejecutar la ruta óptima en las últimas
-
-## Entrega
-
-Debes entregar:
-
-- El código de tu agente.
-- Un archivo `ENTREGA.md` donde documentes:
-  - Nombre del equipo y del ratón.
-  - Descripción del algoritmo implementado.
-  - Mejor tiempo logrado (indica la semilla del laberinto o el archivo que usaste).
-  - Complejidad temporal y espacial de tu algoritmo.
-  - Dificultades encontradas y cómo las resolviste.
-  - Reflexión: ¿qué limitaciones tiene tu solución? ¿Qué mejorarías?
-
-## Recomendaciones
-
-- Prueba el **keyboard mouse** (WASD) con el laberinto `empty_maze.txt` para adquirir intuición de la física. Recuerda apretar `R` para iniciar el simulador.
-- Logra que tu ratón sea robusto al **error odométrico**: ≈7 mm/m en distancia (encoders), ≈1° cada 90° en rotación, y una deriva lenta del rumbo por el sesgo del giróscopo. Para estimar tu posición combina encoders (distancia) y giróscopo (rumbo), y corrige ambos errores con los sensores IR (por ejemplo, alineándote con las paredes).
-- Reporta tu estimación de posición y orientación con `SetEstimatedPose`: el simulador la dibuja como un contorno celeste junto al ratón real y muestra el error en el panel (`Est. error`). Es la mejor forma de depurar tu localización.
-- Empieza con el seguidor de pared y asegúrate de que funciona bien antes de intentar algo más complejo.
-- Usa `PaintCell` para depurar.
-- Prueba con múltiples semillas (`--gen`) y laberintos oficiales.
-- Evita chocar con las paredes para no perder tiempo.
-- Con la siguiente salvedad: puedes chocar suavemente con las paredes para compensar el error odométrico de rotación.
-- Usa Git y haz commits con frecuencia.
-- **No modifiques** el motor del simulador ni su UI.
-
-## Bonus points 🚀
-
-- Optimiza la trayectoria para **minimizar giros**: recorrer varias celdas seguidas en línea recta suele ser mucho más rápido.
-- Optimiza los giros.
-- Implementa recorridos en **diagonal sin giro** cuando el laberinto lo permita.
-
-## Referencias
-
-- [The Fastest Maze-Solving Competition On Earth](https://www.youtube.com/watch?v=ZMQbHMgK2rw)
-- [Claude Shannon — Theseus, the maze-solving mouse (film, 1952)](https://www.youtube.com/watch?v=_9_AEVQ_p74)
+Reporta dónde cree estar tu ratón: posición en metros (`(0, 0)` es la esquina suroeste del laberinto) y rotación en radianes (0 = este, π/2 = norte). El simulador la dibuja como el contorno celeste y calcula `Est. error`: es la mejor forma de depurar tu estimación. Funciones útiles: `PositionToCell(position)`, `Vector2FromAngle(angle, length)` y `AngleDiff(source, target)`.

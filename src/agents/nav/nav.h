@@ -34,8 +34,6 @@ enum Heading
     HEADING_WEST,
 };
 
-#define NAV_PATH_MAX (GRID_SIZE * GRID_SIZE) // Maximum number of moves in a path
-
 #define NAV_SPEED_DEFAULT 0.5f        // m/s
 #define NAV_ACCELERATION_DEFAULT 2.0f // m/s²
 
@@ -65,7 +63,7 @@ void NavReset(Sim *sim);
 void NavUpdate(Sim *sim);
 
 /**
- * @brief Returns true when the mouse has finished the path and is stopped at the center of a cell.
+ * @brief Returns true when the mouse has finished the move and is stopped at the center of a cell.
  */
 bool NavIsIdle();
 
@@ -95,16 +93,16 @@ Heading NavGetHeading();
 uint8_t NavGetWalls();
 
 /**
- * @brief Moves the mouse along a path: each element is the direction of the next cell.
- *        Consecutive moves in the same direction are driven as one fast straight line.
- *        If a wall blocks the path (or the mouse gets stuck), the path ends early: compare
+ * @brief Turns in place to face the given direction (if needed), then drives the given number
+ *        of cells straight ahead, as one fast straight line. With 0 cells, it only turns.
+ *        If a wall blocks the way (or the mouse gets stuck), the move ends early: compare
  *        NavGetCell() with the destination to find out. Ignored unless NavIsIdle() is true:
- *        wait until the mouse stops before giving a new path.
+ *        wait until the mouse stops before giving a new move.
  *
- * @param path The directions of the moves.
- * @param count The number of moves (at most NAV_PATH_MAX).
+ * @param heading The direction to move in.
+ * @param cells The number of cells to drive.
  */
-void NavFollowPath(const Heading *path, int count);
+void NavMove(Heading heading, int cells);
 
 /**
  * @brief Sets the maximum speed and acceleration on straight lines. Faster is riskier:

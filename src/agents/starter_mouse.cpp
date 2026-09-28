@@ -52,5 +52,5 @@ void UpdateMouse(Sim *sim)
     else
         next = back;
 
-    NavFollowPath(&next, 1);
+    NavMove(next, 1);
 }

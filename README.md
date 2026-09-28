@@ -129,20 +129,20 @@ Una celda es `Cell { int32_t x, y; }`, con `(0, 0)` en la esquina suroeste; `x` 
 | ------- | -------- |
 | `NavReset(sim)` | Reinicia la navegación: el ratón está en `(0, 0)` mirando al norte. Llámala en `ResetMouse`. |
 | `NavUpdate(sim)` | Estima la posición y mueve los motores. Llámala al principio de `UpdateMouse`. |
-| `NavIsIdle()` | `true` cuando el ratón terminó el camino y está quieto en el centro de una celda. |
+| `NavIsIdle()` | `true` cuando el ratón terminó el movimiento y está quieto en el centro de una celda. |
 | `NavIsLost()` | `true` si la capa detectó que el ratón se perdió. Se queda quieto: presiona `R`. |
 | `NavGetCell()` | La celda donde el ratón cree estar. |
 | `NavGetHeading()` | La dirección hacia la que el ratón cree mirar. |
 | `NavGetWalls()` | Las paredes de la celda actual, vistas por los sensores al detenerse. |
-| `NavFollowPath(path, count)` | Recorre un camino: cada elemento es la dirección de la próxima celda. |
+| `NavMove(heading, cells)` | Gira hacia `heading` (si hace falta) y avanza `cells` celdas en línea recta. Con `0` celdas, solo gira. |
 | `NavSetSpeed(max_speed, acceleration)` | Velocidad de crucero y aceleración en las rectas (ver [Velocidad y riesgo](#velocidad-y-riesgo)). |
 
 Algunos detalles importantes:
 
-- **Planifica solo cuando el ratón está quieto.** `NavFollowPath` se ignora mientras `NavIsIdle()` sea `false`. `NavGetCell()` y `NavGetHeading()` se actualizan cuando el ratón se detiene, y `NavGetWalls()` solo es válido mientras está quieto.
-- **Las paredes solo se leen donde el ratón se detiene.** Si le das un camino de varias celdas, las celdas intermedias se atraviesan sin leer sus paredes. Para explorar, avanza de a una celda; para correr por un camino conocido, dale el camino completo.
-- **Las rectas son rápidas y los giros son lentos.** Los movimientos consecutivos en la misma dirección se recorren como una sola recta, acelerando y frenando una sola vez. Para girar, el ratón se detiene en el centro de la celda y gira en el lugar.
-- **El camino puede terminar antes.** Si aparece una pared en el camino (o el ratón se traba), el ratón se detiene en la última celda alcanzable. Compara `NavGetCell()` con el destino para saberlo.
+- **Planifica solo cuando el ratón está quieto.** `NavMove` se ignora mientras `NavIsIdle()` sea `false`. `NavGetCell()` y `NavGetHeading()` se actualizan cuando el ratón se detiene, y `NavGetWalls()` solo es válido mientras está quieto.
+- **Las paredes solo se leen donde el ratón se detiene.** Si avanzas varias celdas, las celdas intermedias se atraviesan sin leer sus paredes. Para explorar, avanza de a una celda; para correr por un camino conocido, divídelo en tramos rectos y recorre cada tramo con un solo `NavMove`.
+- **Las rectas son rápidas y los giros son lentos.** Cada `NavMove` recorre sus celdas como una sola recta, acelerando y frenando una sola vez. Para girar, el ratón se detiene en el centro de la celda y gira en el lugar.
+- **El movimiento puede terminar antes.** Si aparece una pared en el camino (o el ratón se traba), el ratón se detiene en la última celda alcanzable. Compara `NavGetCell()` con el destino para saberlo.
 
 ### Ejemplo: el starter mouse
 
@@ -184,7 +184,7 @@ void UpdateMouse(Sim *sim)
     else
         next = back;
 
-    NavFollowPath(&next, 1);
+    NavMove(next, 1);
 }
 ```
 

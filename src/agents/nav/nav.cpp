@@ -14,7 +14,7 @@
  *        - Recovery: if a turn gets stuck (a corner touches a wall because the mouse stopped
  *          off-center), the mouse turns back, moves forward a little and tries again.
  *          If a straight line gets stuck, the mouse backs up to the center of the cell behind it
- *          and the path ends.
+ *          and the move ends.
  *        - Safety: the layer compares the walls it sees with the ones it saw before.
  *          If they contradict each other, it is lost and stops.
  * @author Theseús the hero
@@ -82,10 +82,10 @@ static struct
     Heading heading;
     uint8_t walls;
 
-    // Path
-    Heading path[NAV_PATH_MAX];
-    int path_length;
-    int path_index;
+    // Pending move (NavMove)
+    bool move_pending;
+    Heading move_heading;
+    int move_cells;
 
     // Current maneuver
     NavMode mode;
@@ -342,28 +342,27 @@ static void CorrectWithWalls(const SimState *state, Vector2 axis, Vector2 normal
 
 static void StartNextMove()
 {
-    if (nav.path_index >= nav.path_length)
+    if (!nav.move_pending)
         return;
 
-    Heading heading = nav.path[nav.path_index];
-
     // Turn in place first if needed
-    if (heading != nav.heading)
+    if (nav.move_heading != nav.heading)
     {
         nav.turn_from = nav.heading;
-        nav.heading = heading;
+        nav.heading = nav.move_heading;
         nav.mode = NAV_TURNING;
         nav.stall_time = 0.0f;
         return;
     }
 
-    // Drive all consecutive moves in the same direction as one straight line
+    nav.move_pending = false;
+    if (nav.move_cells == 0)
+        return;
+
+    // Drive all the cells as one straight line
     Cell target = nav.cell;
-    while (nav.path_index < nav.path_length && nav.path[nav.path_index] == heading)
-    {
-        target = GetNeighborCell(target, heading);
-        nav.path_index++;
-    }
+    for (int i = 0; i < nav.move_cells; i++)
+        target = GetNeighborCell(target, nav.heading);
 
     nav.target = GetCellCenter(target);
     nav.mode = NAV_DRIVING;
@@ -384,7 +383,7 @@ static void UpdateTurn(Sim *sim, const SimState *state)
         if (nav.nudge_pending)
         {
             // Turned back after getting stuck: move forward a little along the center line,
-            // then the path continues and the turn is tried again
+            // then the move continues and the turn is tried again
             Vector2 axis = Vector2FromAngle(HeadingToRotation(nav.heading));
             Vector2 center = GetCellCenter(nav.cell);
             float along = Vector2DotProduct(Vector2Subtract(nav.position, center), axis);
@@ -443,7 +442,7 @@ static void UpdateDrive(Sim *sim, const SimState *state)
     float lateral = Vector2DotProduct(offset, normal);
     float heading_error = AngleDiff(HeadingToRotation(nav.heading), nav.rotation);
 
-    // A wall blocks the path: stop at the center of the cell before it
+    // A wall blocks the way: stop at the center of the cell before it
     float front = state->ir_sensors[IR_SENSOR_FRONT];
     if (fabsf(heading_error) < NAV_ALIGNED && front < NAV_FRONT_RANGE &&
         front < remaining + NAV_WALL_DISTANCE - 0.25f * CELL_SIZE)
@@ -455,7 +454,7 @@ static void UpdateDrive(Sim *sim, const SimState *state)
     {
         Vector2 stop = Vector2Add(nav.position, Vector2Scale(axis, front - NAV_WALL_DISTANCE));
         nav.target = GetCellCenter(PositionToCell(stop));
-        nav.path_index = nav.path_length;
+        nav.move_pending = false;
 
         offset = Vector2Subtract(nav.position, nav.target);
         remaining = -Vector2DotProduct(offset, axis);
@@ -488,7 +487,7 @@ static void UpdateDrive(Sim *sim, const SimState *state)
     else
         nav.stall_time = 0.0f;
 
-    // Stuck on a straight line: end the path and back up to the center of the cell behind the
+    // Stuck on a straight line: end the move and back up to the center of the cell behind the
     // mouse (walls can only be read from a cell center). The planner then decides what to do.
     if (nav.stall_time > NAV_STALL_TIME)
     {
@@ -504,7 +503,7 @@ static void UpdateDrive(Sim *sim, const SimState *state)
             center = Vector2Subtract(center, Vector2Scale(axis, CELL_SIZE));
 
         nav.target = center;
-        nav.path_index = nav.path_length;
+        nav.move_pending = false;
         nav.stall_time = 0.0f;
         nav.blocked_time = 0.0f;
     }
@@ -524,8 +523,7 @@ void NavReset(Sim *sim)
     nav.cell = {0, 0};
     nav.heading = HEADING_NORTH;
 
-    nav.path_length = 0;
-    nav.path_index = 0;
+    nav.move_pending = false;
 
     nav.mode = NAV_IDLE;
     nav.velocity = 0.0f;
@@ -578,7 +576,7 @@ void NavUpdate(Sim *sim)
 
 bool NavIsIdle()
 {
-    return nav.mode == NAV_IDLE && nav.path_index >= nav.path_length;
+    return nav.mode == NAV_IDLE && !nav.move_pending;
 }
 
 bool NavIsLost()
@@ -601,16 +599,14 @@ uint8_t NavGetWalls()
     return nav.walls;
 }
 
-void NavFollowPath(const Heading *path, int count)
+void NavMove(Heading heading, int cells)
 {
     if (!NavIsIdle())
         return;
 
-    count = std::clamp(count, 0, NAV_PATH_MAX);
-
-    memcpy(nav.path, path, count * sizeof(Heading));
-    nav.path_length = count;
-    nav.path_index = 0;
+    nav.move_pending = true;
+    nav.move_heading = heading;
+    nav.move_cells = std::clamp(cells, 0, GRID_SIZE - 1);
 }
 
 void NavSetSpeed(float max_speed, float acceleration)

@@ -109,3 +109,8 @@ CLAUDE.md
 # Test mazes (not for students)
 # =========================
 /mazes/test/
+
+# =========================
+# Reference solution (not for students)
+# =========================
+/src/agents/solution_mouse.cpp

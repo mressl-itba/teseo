@@ -11,6 +11,9 @@
  *          ahead gives the distance along the corridor.
  *        - Motion: the mouse turns in place at cell centers and drives straight lines with a
  *          trapezoidal speed profile, steering towards the center line.
+ *        - Recovery: if a turn gets stuck (a corner touches a wall because the mouse stopped
+ *          off-center), the mouse turns back, moves forward a little and tries again.
+ *          If a straight line gets stuck, the mouse stops there and the path ends.
  *        - Safety: the mouse compares the walls it sees with the ones it saw before.
  *          If they contradict each other, it is lost and stops.
  * @author Theseús the hero
@@ -42,16 +45,20 @@
 #define NAV_WALL_DETECT 0.12f                                  // m, closer readings are walls
 #define NAV_WALL_DISTANCE (CELL_HALF_SIZE - WALL_HALF_THICKNESS) // m, from the cell center to a wall
 #define NAV_ALIGNED 0.1f                                       // rad, max heading error to trust the IR sensors
-#define NAV_FRONT_RANGE 0.3f                                   // m, max front reading used for corrections
+#define NAV_FRONT_RANGE 0.2f                                   // m, max front reading used (farther ones are too noisy)
 #define NAV_LATERAL_OUTLIER 0.015f                             // m, larger lateral corrections are discarded
 #define NAV_LATERAL_RATE 25.0f                                 // 1/s, how fast the lateral error is corrected
 #define NAV_FRONT_RATE 25.0f                                   // 1/s, how fast the longitudinal error is corrected
 #define NAV_HEADING_GAIN 0.2f                                  // Fraction of the heading error corrected per sample
-#define NAV_HEADING_SAMPLE 0.02f                               // m traveled between heading samples
+#define NAV_HEADING_SAMPLE 0.03f                               // m traveled between heading samples
+#define NAV_HEADING_FILTER 0.01f                               // m, the side readings are averaged over this distance
 
 // Stall detection
 
-#define NAV_STALL_TIME 0.3f // s without moving while trying to move
+#define NAV_STALL_TIME 0.3f   // s without moving while trying to move
+#define NAV_BLOCKED_TIME 0.01f // s a wall must be seen in the way before stopping (single readings are noisy)
+#define NAV_NUDGE 0.015f     // m to move forward before retrying a stuck turn
+#define NAV_RETRIES_MAX 3    // Stuck turns retried before giving up
 
 enum NavMode
 {
@@ -87,12 +94,20 @@ static struct
     float max_speed;
     float acceleration;
     float stall_time;
+    float blocked_time;
+
+    // Recovery from stuck turns
+    Heading turn_from; // Heading before the current turn
+    bool nudge_pending; // Move forward a little after turning back
+    int retries;
 
     // Last side wall measurement, for the heading correction
     bool wall_sample_valid;
     int wall_sample_sides; // 1 = left wall, 2 = right wall, 3 = both
     float wall_sample_lateral;
     float wall_sample_distance;
+    float wall_lateral_filtered; // Side wall measurement averaged along the way (the readings are noisy)
+    float wall_filter_distance;  // Distance traveled at the last filter update
 
     // Walls seen so far, to notice contradictions
     bool seen[GRID_SIZE][GRID_SIZE];
@@ -269,24 +284,34 @@ static void CorrectWithWalls(const SimState *state, Vector2 axis, Vector2 normal
     {
         nav.position = Vector2Add(nav.position, Vector2Scale(normal, NAV_LATERAL_RATE * SIM_TIMESTEP * (measured - lateral)));
 
-        // Heading: how fast the distance to the wall changes along the way
+        // Heading: how fast the (averaged) distance to the wall changes along the way
         if (!nav.wall_sample_valid || nav.wall_sample_sides != sides)
         {
             nav.wall_sample_valid = true;
             nav.wall_sample_sides = sides;
+            nav.wall_lateral_filtered = measured;
+            nav.wall_filter_distance = nav.distance_traveled;
             nav.wall_sample_lateral = measured;
             nav.wall_sample_distance = nav.distance_traveled;
         }
-        else if (nav.distance_traveled - nav.wall_sample_distance >= NAV_HEADING_SAMPLE)
+        else
         {
-            float slope = (measured - nav.wall_sample_lateral) / (nav.distance_traveled - nav.wall_sample_distance);
-            float measured_error = atanf(slope);
+            float step = fabsf(nav.distance_traveled - nav.wall_filter_distance);
+            nav.wall_lateral_filtered += std::min(step / NAV_HEADING_FILTER, 1.0f) * (measured - nav.wall_lateral_filtered);
+            nav.wall_filter_distance = nav.distance_traveled;
 
-            if (fabsf(measured_error) < NAV_ALIGNED)
-                nav.rotation += NAV_HEADING_GAIN * (measured_error - heading_error);
+            if (nav.distance_traveled - nav.wall_sample_distance >= NAV_HEADING_SAMPLE)
+            {
+                float slope = (nav.wall_lateral_filtered - nav.wall_sample_lateral) /
+                              (nav.distance_traveled - nav.wall_sample_distance);
+                float measured_error = atanf(slope);
 
-            nav.wall_sample_lateral = measured;
-            nav.wall_sample_distance = nav.distance_traveled;
+                if (fabsf(measured_error) < NAV_ALIGNED)
+                    nav.rotation += NAV_HEADING_GAIN * (measured_error - heading_error);
+
+                nav.wall_sample_lateral = nav.wall_lateral_filtered;
+                nav.wall_sample_distance = nav.distance_traveled;
+            }
         }
     }
     else
@@ -317,6 +342,7 @@ static void StartNextMove()
     // Turn in place first if needed
     if (heading != nav.heading)
     {
+        nav.turn_from = nav.heading;
         nav.heading = heading;
         nav.mode = NAV_TURNING;
         nav.stall_time = 0.0f;
@@ -334,6 +360,7 @@ static void StartNextMove()
     nav.target = GetCellCenter(target);
     nav.mode = NAV_DRIVING;
     nav.stall_time = 0.0f;
+    nav.blocked_time = 0.0f;
     nav.wall_sample_valid = false;
 }
 
@@ -345,6 +372,24 @@ static void UpdateTurn(Sim *sim, const SimState *state)
     {
         nav.mode = NAV_IDLE;
         nav.angular_velocity = 0.0f;
+
+        if (nav.nudge_pending)
+        {
+            // Turned back after getting stuck: move forward a little along the center line,
+            // then the path continues and the turn is tried again
+            Vector2 axis = Vector2FromAngle(HeadingToRotation(nav.heading));
+            Vector2 center = GetCellCenter(nav.cell);
+            float along = Vector2DotProduct(Vector2Subtract(nav.position, center), axis);
+
+            nav.nudge_pending = false;
+            nav.target = Vector2Add(center, Vector2Scale(axis, along + NAV_NUDGE));
+            nav.mode = NAV_DRIVING;
+            nav.stall_time = 0.0f;
+            nav.wall_sample_valid = false;
+        }
+        else
+            nav.retries = 0;
+
         return;
     }
 
@@ -363,7 +408,19 @@ static void UpdateTurn(Sim *sim, const SimState *state)
         nav.stall_time = 0.0f;
 
     if (nav.stall_time > NAV_STALL_TIME)
-        SetLost(sim);
+    {
+        if (++nav.retries > NAV_RETRIES_MAX)
+        {
+            SetLost(sim);
+            return;
+        }
+
+        // Turn back to where the turn started, then move forward a little and retry
+        nav.heading = nav.turn_from;
+        nav.nudge_pending = true;
+        nav.angular_velocity = 0.0f;
+        nav.stall_time = 0.0f;
+    }
 }
 
 static void UpdateDrive(Sim *sim, const SimState *state)
@@ -382,6 +439,11 @@ static void UpdateDrive(Sim *sim, const SimState *state)
     float front = state->ir_sensors[IR_SENSOR_FRONT];
     if (fabsf(heading_error) < NAV_ALIGNED && front < NAV_FRONT_RANGE &&
         front < remaining + NAV_WALL_DISTANCE - 0.25f * CELL_SIZE)
+        nav.blocked_time += SIM_TIMESTEP;
+    else
+        nav.blocked_time = 0.0f;
+
+    if (nav.blocked_time >= NAV_BLOCKED_TIME)
     {
         Vector2 stop = Vector2Add(nav.position, Vector2Scale(axis, front - NAV_WALL_DISTANCE));
         nav.target = GetCellCenter(PositionToCell(stop));
@@ -418,8 +480,26 @@ static void UpdateDrive(Sim *sim, const SimState *state)
     else
         nav.stall_time = 0.0f;
 
+    // Stuck on a straight line: end the path and back up to the center of the cell behind the
+    // mouse (walls can only be read from a cell center). The planner then decides what to do.
     if (nav.stall_time > NAV_STALL_TIME)
-        SetLost(sim);
+    {
+        if (++nav.retries > NAV_RETRIES_MAX)
+        {
+            SetLost(sim);
+            return;
+        }
+
+        Cell cell = PositionToCell(nav.position);
+        Vector2 center = GetCellCenter(cell);
+        if (Vector2DotProduct(Vector2Subtract(nav.position, center), axis) < 0.0f)
+            center = Vector2Subtract(center, Vector2Scale(axis, CELL_SIZE));
+
+        nav.target = center;
+        nav.path_index = nav.path_length;
+        nav.stall_time = 0.0f;
+        nav.blocked_time = 0.0f;
+    }
 }
 
 // Public API
@@ -444,6 +524,8 @@ void NavReset(Sim *sim)
     nav.angular_velocity = 0.0f;
     nav.stall_time = 0.0f;
     nav.wall_sample_valid = false;
+    nav.nudge_pending = false;
+    nav.retries = 0;
 
     if (nav.max_speed == 0.0f)
         NavSetSpeed(NAV_SPEED_DEFAULT, NAV_ACCELERATION_DEFAULT);
@@ -521,6 +603,7 @@ void NavFollowPath(const Heading *path, int count)
     memcpy(nav.path, path, count * sizeof(Heading));
     nav.path_length = count;
     nav.path_index = 0;
+    nav.retries = 0;
 }
 
 void NavSetSpeed(float max_speed, float acceleration)

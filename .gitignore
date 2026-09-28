@@ -114,3 +114,8 @@ CLAUDE.md
 # Reference solution (not for students)
 # =========================
 /src/agents/solution_mouse.cpp
+
+# =========================
+# Test bench (not for students)
+# =========================
+/tools/

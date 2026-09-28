@@ -83,7 +83,7 @@ Sí puedes recordar lo que aprendió tu ratón en las corridas anteriores. Si du
 | Rayos amarillos | Los sensores infrarrojos y lo que detectan. |
 | Celdas coloreadas | Lo que pinta tu ratón con `PaintCell`. Útil para depurar. |
 | `Est. error` | La diferencia entre donde el ratón está y donde cree estar: distancia en cm y ángulo en grados. |
-| Cartel "LOST!" | El ratón se dio cuenta de que está perdido (ver [Creencia y realidad](#creencia-y-realidad)). Presiona `R` para volver a empezar desde el origen. |
+| `Run state` | El estado de la corrida. En rojo, un mensaje: cómo empezar, que se acabó el tiempo o las corridas, o lo que muestra tu ratón con `SetStatusText`. |
 
 ## Tu ratón
 
@@ -199,7 +199,7 @@ Es simple, pero lento, y en algunos laberintos puede entrar en bucles infinitos.
 | `PaintCell(sim, cell, color)` | Pinta una celda. Colores: `COLOR_CELL_DEFAULT`, `COLOR_CELL_VISITED`, `COLOR_CELL_RED`, `COLOR_CELL_GREEN`, `COLOR_CELL_BLUE`. |
 | `GetCellColor(sim, cell)` | El color de una celda. |
 | `ResetCellColors(sim)` | Vuelve todas las celdas al color original. |
-| `SetStatusText(sim, text)` | Muestra un mensaje sobre el laberinto (`""` lo oculta). |
+| `SetStatusText(sim, text)` | Muestra un mensaje en el panel, en lugar del estado de la corrida (`""` lo oculta). |
 | `GetSimState(sim)` | El estado de la competencia: `run_number`, `run_state`, `run_time`, `run_time_best`, `time` (ver el [apéndice](#apéndice-la-capa-de-bajo-nivel)). |
 | `ValidateCell(cell)`, `IsStartCell(cell)`, `IsGoalCell(cell)` | Si una celda está dentro del laberinto, es el origen o es una de las cuatro de la meta. |
 
@@ -213,7 +213,7 @@ Ningún sensor es perfecto. Las ruedas patinan un poco y su diámetro real no es
 
 El contorno celeste en pantalla es esa creencia, y `Est. error` es cuánto se equivoca. A la velocidad por defecto la creencia es muy confiable. Pero si el error crece demasiado, la capa puede creer que el ratón está en una celda cuando en realidad está en otra, y atribuirle las paredes a la celda equivocada.
 
-La capa vigila esto: recuerda las paredes que vio en cada celda, y si alguna vez ve algo que contradice lo que vio antes, se da cuenta de que el ratón está perdido, lo detiene y muestra "LOST!". A partir de ahí solo queda presionar `R`.
+La capa vigila esto: recuerda las paredes que vio en cada celda, y si alguna vez ve algo que contradice lo que vio antes, se da cuenta de que el ratón está perdido, lo detiene y `NavIsLost()` pasa a ser `true`. A partir de ahí solo queda presionar `R`. La capa no muestra nada en pantalla: si quieres verlo, que tu ratón lo muestre con `SetStatusText`.
 
 Tu mapa del laberinto también se construye con la creencia de la capa. Si el ratón se pierde, puede que tu mapa tenga algún error: la capa no siempre se da cuenta en el mismo momento en que se equivocó.
 

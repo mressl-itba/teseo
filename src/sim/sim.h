@@ -246,7 +246,7 @@ void SetMouseVelocity(Sim *sim, float linear, float angular);
 void SetEstimatedPose(Sim *sim, Vector2 position, float rotation);
 
 /**
- * @brief Shows a message over the maze (e.g. "LOST! Press [R]"). An empty string hides it.
+ * @brief Shows a message in place of the run state (e.g. "LOST! Press [R]"). An empty string hides it.
  *        The message is cleared when a run is started with [R].
  *
  * @param sim The simulation instance.

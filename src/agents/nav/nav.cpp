@@ -152,13 +152,11 @@ static float GetEncoderDistance(const SimState *state)
 
 // Belief
 
-static void SetLost(Sim *sim)
+static void SetLost()
 {
     nav.mode = NAV_LOST;
     nav.velocity = 0.0f;
     nav.angular_velocity = 0.0f;
-
-    SetStatusText(sim, "LOST! Press [R]");
 }
 
 static uint8_t ReadWalls(const SimState *state)
@@ -184,13 +182,13 @@ static uint8_t ReadWalls(const SimState *state)
     return walls;
 }
 
-static void CheckWalls(Sim *sim)
+static void CheckWalls()
 {
     Cell cell = nav.cell;
 
     if (!ValidateCell(cell))
     {
-        SetLost(sim);
+        SetLost();
         return;
     }
 
@@ -204,14 +202,14 @@ static void CheckWalls(Sim *sim)
         Cell neighbor = GetNeighborCell(cell, heading);
         if (!ValidateCell(neighbor) && !has_wall)
         {
-            SetLost(sim);
+            SetLost();
             return;
         }
 
         // The wall must match what was seen before, from this cell or from the neighbor
         if (nav.seen[cell.x][cell.y] && ((nav.seen_walls[cell.x][cell.y] & wall) != 0) != has_wall)
         {
-            SetLost(sim);
+            SetLost();
             return;
         }
 
@@ -219,7 +217,7 @@ static void CheckWalls(Sim *sim)
         if (ValidateCell(neighbor) && nav.seen[neighbor.x][neighbor.y] &&
             ((nav.seen_walls[neighbor.x][neighbor.y] & neighbor_wall) != 0) != has_wall)
         {
-            SetLost(sim);
+            SetLost();
             return;
         }
     }
@@ -242,7 +240,7 @@ static void Arrive(Sim *sim, const SimState *state)
     nav.cell = cell;
     nav.walls = ReadWalls(state);
 
-    CheckWalls(sim);
+    CheckWalls();
 }
 
 // Estimation
@@ -421,7 +419,7 @@ static void UpdateTurn(Sim *sim, const SimState *state)
     {
         if (++nav.retries > NAV_RETRIES_MAX)
         {
-            SetLost(sim);
+            SetLost();
             return;
         }
 
@@ -496,7 +494,7 @@ static void UpdateDrive(Sim *sim, const SimState *state)
     {
         if (++nav.retries > NAV_RETRIES_MAX)
         {
-            SetLost(sim);
+            SetLost();
             return;
         }
 
@@ -543,7 +541,7 @@ void NavReset(Sim *sim)
     memset(nav.seen, 0, sizeof(nav.seen));
 
     nav.walls = ReadWalls(state);
-    CheckWalls(sim);
+    CheckWalls();
 
     SetMouseVelocity(sim, 0.0f, 0.0f);
 }

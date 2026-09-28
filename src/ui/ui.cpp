@@ -64,7 +64,6 @@
 #define COLOR_SENSOR_MISS {255, 200, 60, 70}
 #define COLOR_MOUSE_ARROW {255, 200, 60, 255}
 #define COLOR_ESTIMATE {60, 200, 255, 255}
-#define COLOR_STATUS_BACKGROUND {15, 18, 28, 230}
 #define COLOR_STATUS_TEXT {255, 90, 80, 255}
 
 #define COLOR_PANEL_BACKGROUND {15, 18, 28, 255}
@@ -261,41 +260,16 @@ static void DrawMouseEstimate()
                ESTIMATE_THICKNESS_PIXELS, COLOR_ESTIMATE);
 }
 
-static void DrawStatus()
-{
-    // The UI's own messages take precedence over the agent's
-    const SimState *state = GetSimState(ui.sim);
-    const char *text = GetStatusText(ui.sim);
-
-    if (state->run_number == 0)
-        text = "Press [R] to start";
-    else if (state->time >= RUN_TIME_MAX)
-        text = "Time's up!";
-    else if (ui.no_runs_left)
-        text = "No runs left";
-
-    if (!text[0])
-        return;
-
-    int width = MeasureText(text, FONT_SIZE_LARGE / 2);
-    int x = (int)(MAZE_PX - width) / 2;
-    int y = (WINDOW_HEIGHT - FONT_SIZE_LARGE / 2) / 2;
-
-    DrawRectangle(x - PANEL_PADDING, y - PANEL_PADDING, width + 2 * PANEL_PADDING, FONT_SIZE_LARGE / 2 + 2 * PANEL_PADDING,
-                  COLOR_STATUS_BACKGROUND);
-    DrawText(text, x, y, FONT_SIZE_LARGE / 2, COLOR_STATUS_TEXT);
-}
-
 static void DrawPanelText(const char *label, float cx, float &cy, int size = FONT_SIZE_SMALL, Color color = COLOR_TEXT)
 {
     DrawText(label, cx, cy, size, color);
     cy += size + PANEL_SPACING;
 }
 
-static void DrawPanelTab(const char *label, const char *value, float cx, float &cy)
+static void DrawPanelTab(const char *label, const char *value, float cx, float &cy, Color value_color = COLOR_TEXT)
 {
     DrawText(label, cx, cy, FONT_SIZE_SMALL, COLOR_TEXT);
-    DrawText(value, cx + PANEL_TAB1, cy, FONT_SIZE_SMALL, COLOR_TEXT);
+    DrawText(value, cx + PANEL_TAB1, cy, FONT_SIZE_SMALL, value_color);
     cy += FONT_SIZE_SMALL + PANEL_SPACING;
 }
 
@@ -315,12 +289,23 @@ static void DrawPanel()
     const char *sensor_labels[] = {"Left", "FwdLeft", "Forward", "FwdRight", "Right"};
     const char *run_state_labels[] = {"Idle", "Running", "Returning"};
 
+    // Messages replace the run state: the UI's own first, then the agent's status text
     const char *run_state_label;
+    Color run_state_color = COLOR_STATUS_TEXT;
 
-    if (state->time >= RUN_TIME_MAX)
+    if (state->run_number == 0)
+        run_state_label = "Press [R] to start";
+    else if (state->time >= RUN_TIME_MAX)
         run_state_label = "Out of time";
+    else if (ui.no_runs_left)
+        run_state_label = "No runs left";
+    else if (GetStatusText(ui.sim)[0])
+        run_state_label = GetStatusText(ui.sim);
     else
+    {
         run_state_label = run_state_labels[state->run_state];
+        run_state_color = COLOR_TEXT;
+    }
 
     // Background
 
@@ -343,7 +328,7 @@ static void DrawPanel()
 
     DrawPanelText("STATS", position.x, position.y, FONT_SIZE_SMALL, COLOR_MUTED);
     DrawPanelTab("Run", TextFormat("%d", state->run_number), position.x, position.y);
-    DrawPanelTab("Run state", run_state_label, position.x, position.y);
+    DrawPanelTab("Run state", run_state_label, position.x, position.y, run_state_color);
     DrawPanelTab("Time", TextFormat("%.3f s", state->time), position.x, position.y);
     DrawPanelTab("Run time", TextFormat("%.3f s", state->run_time), position.x, position.y);
     if (state->run_time_best > 0.0f)
@@ -408,8 +393,12 @@ void CreateUI(const Maze *maze, uint32_t noise_seed)
     ui.sim = CreateSim(maze, noise_seed);
 
     // Monitor queries need an initialized window, so the target FPS is set afterwards.
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Teseo — Micromouse Virtual Competition");
     SetTargetFPS(GetMonitorRefreshRate(GetCurrentMonitor()));
+
+    // The layout is scaled to the window, so the bitmap font is smoothed
+    SetTextureFilter(GetFontDefault().texture, TEXTURE_FILTER_BILINEAR);
 }
 
 void DestroyUI()
@@ -449,18 +438,28 @@ bool UpdateUI()
 
     // Toggle fullscreen
     if (IsKeyPressed(KEY_F11))
-        ToggleFullscreen();
+        ToggleBorderlessWindowed();
 
-    // Render
+    // Render the WINDOW_WIDTH × WINDOW_HEIGHT layout scaled to fit the window, centered
+    float render_width = (float)GetRenderWidth();
+    float render_height = (float)GetRenderHeight();
+
+    Camera2D camera = {};
+    camera.zoom = std::min(render_width / WINDOW_WIDTH, render_height / WINDOW_HEIGHT);
+    camera.offset = {(render_width - WINDOW_WIDTH * camera.zoom) / 2,
+                     (render_height - WINDOW_HEIGHT * camera.zoom) / 2};
+
     BeginDrawing();
 
     ClearBackground(COLOR_BACKGROUND);
+
+    BeginMode2D(camera);
     DrawMaze();
     DrawMouseSensors();
     DrawMouse();
     DrawMouseEstimate();
-    DrawStatus();
     DrawPanel();
+    EndMode2D();
 
     EndDrawing();
 

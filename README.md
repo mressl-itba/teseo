@@ -10,7 +10,7 @@ En esta práctica vas a **diseñar y programar un agente autónomo** capaz de na
 
 Construyó un ratón de madera con un imán en la base y lo llamó **Theseus**.
 
-Theseus se movía sobre un laberinto de 25 celdas. Debajo del tablero, un sistema de 75 relés electromagnéticos controlaba su recorrido. La primera vez que lo soltaban, el ratón exploraba el laberinto por ensayo y error. Pero una vez que encontraba la salida, memorizaba el camino. En la segunda corrida, lo recorría sin un solo error.
+Theseus se movía sobre un laberinto de 25 celdas. Debajo del tablero, un sistema de 75 relés electromagnéticos controlaba su recorrido. La primera vez que lo soltaban, el ratón exploraba el laberinto por ensayo y error. Pero una vez que encontraba la meta, memorizaba el camino. En la segunda corrida, lo recorría sin un solo error.
 
 Shannon lo presentó en conferencias y en televisión. Lo llamó "un ejemplo de comportamiento adaptativo en máquinas". Era, en esencia, uno de los primeros dispositivos de inteligencia artificial de la historia.
 
@@ -31,7 +31,7 @@ cmake -B build
 cmake --build build
 ```
 
-CMake descarga y compila solo las dependencias (raylib y Box2D). Cada archivo `.cpp` de `src/agents/` es un ratón distinto y genera su propio ejecutable con el mismo nombre: `starter_mouse`, `keyboard_mouse` y, más adelante, el tuyo.
+CMake descarga y compila automáticamente las dependencias (raylib y Box2D). Cada archivo `.cpp` de `src/agents/` es un ratón distinto y genera su propio ejecutable con el mismo nombre: `starter_mouse`, `keyboard_mouse` y, más adelante, el tuyo.
 
 ### Ejecutar
 
@@ -50,18 +50,18 @@ Los sensores y los motores tienen errores aleatorios (ver [Creencia y realidad](
 
 | Tecla | Acción |
 | ----- | ------ |
-| `R` | Inicia una corrida desde la celda de salida. |
+| `R` | Inicia una corrida desde el origen. |
 | `F11` | Pantalla completa. |
 
 ### Reglas
 
-El laberinto sigue el estándar **IEEE Micromouse de 16x16 celdas** (18 cm cada una). El ratón arranca en la esquina suroeste `(0, 0)`, orientado al norte. El objetivo es el cuadrado central de **2x2 celdas**.
+El laberinto sigue el estándar **IEEE Micromouse de 16×16 celdas** (18 cm cada una). El ratón arranca en la esquina suroeste `(0, 0)`, orientado al norte. El objetivo es el cuadrado central de **2×2 celdas**.
 
 Dispones de **5 corridas** y **300 segundos** de tiempo total. Cuenta la mejor marca individual. La competencia se corre en un laberinto sorpresa.
 
-El tiempo de cada corrida se cuenta desde que el ratón **abandona la celda inicial** hasta que **llega a cualquiera de las cuatro celdas centrales**. Al terminar una corrida, el ratón debe **regresar autónomamente al origen**: al llegar, la siguiente corrida empieza sola.
+El tiempo de cada corrida se cuenta desde que el ratón **sale del origen** hasta que **llega a cualquiera de las cuatro celdas centrales**. Al terminar una corrida, el ratón debe **regresar autónomamente al origen**: al llegar, la siguiente corrida empieza sola.
 
-Si el ratón se pierde o se traba, presiona `R` para volver a empezar desde la salida. Pero cuidado: **cada `R` consume una de las 5 corridas**.
+Si el ratón se pierde o se traba, presiona `R` para volver a empezar desde el origen. Pero cuidado: **cada `R` consume una de las 5 corridas**.
 
 Chocar no tiene penalización, pero tiene consecuencias: el ratón pierde tiempo y puede desorientarse.
 
@@ -83,7 +83,7 @@ Sí puedes recordar lo que aprendió tu ratón en las corridas anteriores. Si du
 | Rayos amarillos | Los sensores infrarrojos y lo que detectan. |
 | Celdas coloreadas | Lo que pinta tu ratón con `PaintCell`. Útil para depurar. |
 | `Est. error` | La diferencia entre donde el ratón está y donde cree estar: distancia en cm y ángulo en grados. |
-| Cartel "LOST!" | El ratón se dio cuenta de que está perdido (ver [Creencia y realidad](#creencia-y-realidad)). Presiona `R` para volver a empezar desde la salida. |
+| Cartel "LOST!" | El ratón se dio cuenta de que está perdido (ver [Creencia y realidad](#creencia-y-realidad)). Presiona `R` para volver a empezar desde el origen. |
 
 ## Tu ratón
 
@@ -103,7 +103,7 @@ void ResetMouse(Sim *sim);    // Se llama al presionar R
 void UpdateMouse(Sim *sim);   // Se llama 1000 veces por segundo de simulación
 ```
 
-`ResetMouse` se llama solo cuando presionas `R`: al arrancar, y si tienes que reiniciar el ratón a mano. Las corridas siguientes empiezan solas cuando el ratón vuelve a la salida, sin llamarla.
+`ResetMouse` se llama solo cuando presionas `R`: al arrancar, y cuando reinicias el ratón a mano. Las corridas siguientes empiezan solas cuando el ratón vuelve al origen: tu ratón no se reinicia, así que conserva lo que aprendió del laberinto.
 
 ## La capa de navegación
 
@@ -169,6 +169,7 @@ void UpdateMouse(Sim *sim)
 
     PaintCell(sim, cell, COLOR_CELL_VISITED);
 
+    // Headings are in clockwise order: +1 is right, +3 is left, +2 is back
     Heading right = (Heading)((heading + 1) % 4);
     Heading left = (Heading)((heading + 3) % 4);
     Heading back = (Heading)((heading + 2) % 4);
@@ -200,7 +201,7 @@ Es simple, pero lento, y en algunos laberintos puede entrar en bucles infinitos.
 | `ResetCellColors(sim)` | Vuelve todas las celdas al color original. |
 | `SetStatusText(sim, text)` | Muestra un mensaje sobre el laberinto (`""` lo oculta). |
 | `GetSimState(sim)` | El estado de la competencia: `run_number`, `run_state`, `run_time`, `run_time_best`, `time` (ver el [apéndice](#apéndice-la-capa-de-bajo-nivel)). |
-| `ValidateCell(cell)`, `IsStartCell(cell)`, `IsGoalCell(cell)` | Si una celda está dentro del laberinto, es la salida o es una de las cuatro de la meta. |
+| `ValidateCell(cell)`, `IsStartCell(cell)`, `IsGoalCell(cell)` | Si una celda está dentro del laberinto, es el origen o es una de las cuatro de la meta. |
 
 ## Creencia y realidad
 
@@ -241,7 +242,7 @@ Debes entregar:
 - Un archivo `ENTREGA.md` donde documentes:
   - Nombre del equipo y del ratón.
   - Descripción del algoritmo implementado.
-  - Mejor tiempo logrado (indica el laberinto que usaste: la semilla o el archivo).
+  - Mejor tiempo logrado (indica el laberinto que usaste, la semilla o el archivo, y la semilla de ruido).
   - Complejidad temporal y espacial de tu algoritmo.
   - Dificultades encontradas y cómo las resolviste.
   - Reflexión: ¿qué limitaciones tiene tu solución? ¿Qué mejorarías?
@@ -289,7 +290,7 @@ const SimState *s = GetSimState(sim);
 
 #### Infrarrojos
 
-El ratón cuenta con **5 sensores de distancia** que miden la distancia en metros desde el centro del robot hasta la pared más cercana:
+El ratón cuenta con **5 sensores de distancia** que miden la distancia en metros desde el centro del robot hasta el obstáculo más cercano en su dirección:
 
 | Constante | Dirección |
 | --------- | --------- |
@@ -312,9 +313,18 @@ s->encoders[ENCODER_LEFT]   // distancia recorrida por la rueda izquierda (m, po
 s->encoders[ENCODER_RIGHT]  // distancia recorrida por la rueda derecha (m)
 ```
 
-El promedio de ambos es cuánto avanzó el ratón, y su diferencia dividida por la trocha (`MOUSE_WHEEL_TRACK`, 70 mm) es cuánto giró. Se ponen en cero con cada `R`. Sus errores:
+Con ellos puedes calcular cuánto avanzó y cuánto giró el ratón:
 
-- El diámetro real de las ruedas difiere del nominal (≈7 mm/m, distinto para cada rueda). Es el mismo error en todas las corridas.
+```cpp
+float left = s->encoders[ENCODER_LEFT];
+float right = s->encoders[ENCODER_RIGHT];
+float distance = (left + right) / 2;              // m
+float angle = (right - left) / MOUSE_WHEEL_TRACK; // rad, positivo = izquierda
+```
+
+`MOUSE_WHEEL_TRACK` es la trocha, la distancia entre las ruedas (70 mm). Los encoders se ponen en cero con cada `R`. Sus errores:
+
+- El diámetro real de las ruedas difiere del nominal (≈7 mm/m, casi igual en las dos ruedas). Es el mismo error en todas las corridas.
 - Las ruedas patinan un poco todo el tiempo, y mucho si aceleras demasiado.
 - No registran el deslizamiento lateral, por ejemplo al rozar una pared.
 
@@ -325,14 +335,14 @@ s->gyroscope      // velocidad angular (rad/s, positivo = izquierda)
 s->accelerometer  // Vector2 (m/s²): y = adelante, x = derecha
 ```
 
-El giróscopo tiene un pequeño **sesgo** (≈0,05°/s) que cambia en cada corrida y deriva lentamente. Si lo integras para estimar la orientación, el error crece con el tiempo. El acelerómetro incluye la aceleración centrípeta de los giros.
+El giróscopo tiene un pequeño **sesgo** (≈0,05°/s) que deriva lentamente. Si lo integras para estimar la orientación, el error crece con el tiempo. El acelerómetro incluye la aceleración centrípeta de los giros.
 
 ### El estado de la competencia
 
 ```cpp
 s->time           // Tiempo total (s)
 s->run_number     // Número de corrida actual (1 a 5)
-s->run_state      // RUNSTATE_IDLE (en la salida) / RUNSTATE_RUNNING / RUNSTATE_RETURNING
+s->run_state      // RUNSTATE_IDLE (en el origen) / RUNSTATE_RUNNING / RUNSTATE_RETURNING
 s->run_time       // Tiempo de la corrida actual (s)
 s->run_time_best  // Mejor tiempo hasta ahora (0 = ninguno)
 ```

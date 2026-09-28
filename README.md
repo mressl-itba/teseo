@@ -246,6 +246,7 @@ Debes entregar:
   - Complejidad temporal y espacial de tu algoritmo.
   - Dificultades encontradas y cómo las resolviste.
   - Reflexión: ¿qué limitaciones tiene tu solución? ¿Qué mejorarías?
+  - Si usaste IA, el registro de las preguntas que le hiciste.
 
 ## Recomendaciones
 

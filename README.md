@@ -83,7 +83,7 @@ Sí puedes recordar lo que aprendió tu ratón en las corridas anteriores. Si du
 | Rayos amarillos | Los sensores infrarrojos y lo que detectan. |
 | Celdas coloreadas | Lo que pinta tu ratón con `PaintCell`. Útil para depurar. |
 | `Est. error` | La diferencia entre donde el ratón está y donde cree estar: distancia en cm y ángulo en grados. |
-| Cartel "LOST!" | La capa detectó que el ratón se perdió. Presiona `R` para volver a empezar desde la salida. |
+| Cartel "LOST!" | El ratón se dio cuenta de que está perdido (ver [Creencia y realidad](#creencia-y-realidad)). Presiona `R` para volver a empezar desde la salida. |
 
 ## Tu ratón
 

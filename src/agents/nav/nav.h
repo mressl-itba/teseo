@@ -48,6 +48,12 @@ uint8_t HeadingToWall(Heading heading);
 Cell GetNeighborCell(Cell cell, Heading heading);
 
 /**
+ * @brief Returns the direction after turning the given number of quarter turns clockwise:
+ *        1 is right, 2 is back, -1 is left.
+ */
+Heading RotateHeading(Heading heading, int quarter_turns_clockwise);
+
+/**
  * @brief Resets the navigation layer: the mouse is at the start cell, facing north.
  *        Call it from ResetMouse().
  *

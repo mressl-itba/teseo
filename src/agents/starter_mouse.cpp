@@ -37,10 +37,9 @@ void UpdateMouse(Sim *sim)
 
     PaintCell(sim, cell, COLOR_CELL_VISITED);
 
-    // Headings are in clockwise order: +1 is right, +3 is left, +2 is back
-    Heading right = (Heading)((heading + 1) % 4);
-    Heading left = (Heading)((heading + 3) % 4);
-    Heading back = (Heading)((heading + 2) % 4);
+    Heading right = RotateHeading(heading, 1);
+    Heading left = RotateHeading(heading, -1);
+    Heading back = RotateHeading(heading, 2);
 
     Heading next;
     if (!(walls & HeadingToWall(right)))

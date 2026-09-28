@@ -117,7 +117,7 @@ La capa maneja al ratón como si recorriera un grafo: las celdas son los nodos, 
 enum Heading { HEADING_NORTH, HEADING_EAST, HEADING_SOUTH, HEADING_WEST };
 ```
 
-Las direcciones están en orden horario: `(heading + 1) % 4` es la derecha, `(heading + 2) % 4` es atrás y `(heading + 3) % 4` es la izquierda.
+Las direcciones están en orden horario. `RotateHeading(heading, n)` gira `n` cuartos de vuelta en sentido horario: `1` es la derecha, `2` es atrás y `-1` es la izquierda.
 
 Las paredes de una celda son una máscara de bits: `WALL_NORTH | WALL_EAST | WALL_SOUTH | WALL_WEST`. `HeadingToWall(heading)` convierte una dirección en su bit, y `GetNeighborCell(cell, heading)` devuelve la celda vecina en esa dirección.
 
@@ -169,10 +169,9 @@ void UpdateMouse(Sim *sim)
 
     PaintCell(sim, cell, COLOR_CELL_VISITED);
 
-    // Headings are in clockwise order: +1 is right, +3 is left, +2 is back
-    Heading right = (Heading)((heading + 1) % 4);
-    Heading left = (Heading)((heading + 3) % 4);
-    Heading back = (Heading)((heading + 2) % 4);
+    Heading right = RotateHeading(heading, 1);
+    Heading left = RotateHeading(heading, -1);
+    Heading back = RotateHeading(heading, 2);
 
     Heading next;
     if (!(walls & HeadingToWall(right)))

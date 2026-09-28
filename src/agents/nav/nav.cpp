@@ -22,7 +22,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstring>
 
 #include "nav.h"
 
@@ -92,8 +91,8 @@ static struct
     Vector2 target; // Center of the destination cell, while driving
     float velocity;
     float angular_velocity;
-    float max_speed;
-    float acceleration;
+    float max_speed = NAV_SPEED_DEFAULT;
+    float acceleration = NAV_ACCELERATION_DEFAULT;
     float stall_time;
     float blocked_time;
 
@@ -130,7 +129,7 @@ Cell GetNeighborCell(Cell cell, Heading heading)
     return {cell.x + dx[heading], cell.y + dy[heading]};
 }
 
-static Heading RotateHeading(Heading heading, int quarter_turns_clockwise)
+Heading RotateHeading(Heading heading, int quarter_turns_clockwise)
 {
     return (Heading)(((heading + quarter_turns_clockwise) % 4 + 4) % 4);
 }
@@ -152,11 +151,37 @@ static float GetEncoderDistance(const SimState *state)
 
 // Belief
 
+static void Stop()
+{
+    nav.velocity = 0.0f;
+    nav.angular_velocity = 0.0f;
+}
+
 static void SetLost()
 {
     nav.mode = NAV_LOST;
-    nav.velocity = 0.0f;
-    nav.angular_velocity = 0.0f;
+    Stop();
+}
+
+// Measures how long the mouse has been stuck; true (once) when it is too long
+static bool Stalled(bool stuck)
+{
+    nav.stall_time = stuck ? nav.stall_time + SIM_TIMESTEP : 0.0f;
+    if (nav.stall_time <= NAV_STALL_TIME)
+        return false;
+
+    nav.stall_time = 0.0f;
+    return true;
+}
+
+// Counts a retry after getting stuck; true (and lost) after too many
+static bool GiveUp()
+{
+    if (++nav.retries <= NAV_RETRIES_MAX)
+        return false;
+
+    SetLost();
+    return true;
 }
 
 static uint8_t ReadWalls(const SimState *state)
@@ -182,6 +207,13 @@ static uint8_t ReadWalls(const SimState *state)
     return walls;
 }
 
+// True if the cell was seen before with a different wall in the given direction
+static bool Contradicts(Cell cell, Heading heading, bool has_wall)
+{
+    return ValidateCell(cell) && nav.seen[cell.x][cell.y] &&
+           ((nav.seen_walls[cell.x][cell.y] & HeadingToWall(heading)) != 0) != has_wall;
+}
+
 static void CheckWalls()
 {
     Cell cell = nav.cell;
@@ -195,27 +227,13 @@ static void CheckWalls()
     for (int i = 0; i < 4; i++)
     {
         Heading heading = (Heading)i;
-        uint8_t wall = HeadingToWall(heading);
-        bool has_wall = nav.walls & wall;
-
-        // The maze border always has walls
+        bool has_wall = nav.walls & HeadingToWall(heading);
         Cell neighbor = GetNeighborCell(cell, heading);
-        if (!ValidateCell(neighbor) && !has_wall)
-        {
-            SetLost();
-            return;
-        }
 
-        // The wall must match what was seen before, from this cell or from the neighbor
-        if (nav.seen[cell.x][cell.y] && ((nav.seen_walls[cell.x][cell.y] & wall) != 0) != has_wall)
-        {
-            SetLost();
-            return;
-        }
-
-        uint8_t neighbor_wall = HeadingToWall(RotateHeading(heading, 2));
-        if (ValidateCell(neighbor) && nav.seen[neighbor.x][neighbor.y] &&
-            ((nav.seen_walls[neighbor.x][neighbor.y] & neighbor_wall) != 0) != has_wall)
+        // The maze border always has walls, and each wall must match what was seen before,
+        // from this cell or from the neighbor
+        if ((!ValidateCell(neighbor) && !has_wall) || Contradicts(cell, heading, has_wall) ||
+            Contradicts(neighbor, RotateHeading(heading, 2), has_wall))
         {
             SetLost();
             return;
@@ -226,11 +244,10 @@ static void CheckWalls()
     nav.seen_walls[cell.x][cell.y] = nav.walls;
 }
 
-static void Arrive(Sim *sim, const SimState *state)
+static void Arrive(const SimState *state)
 {
     nav.mode = NAV_IDLE;
-    nav.velocity = 0.0f;
-    nav.angular_velocity = 0.0f;
+    Stop();
 
     // Retries count the times the mouse gets stuck without reaching a new cell
     Cell cell = PositionToCell(nav.position);
@@ -340,6 +357,25 @@ static void CorrectWithWalls(const SimState *state, Vector2 axis, Vector2 normal
 
 // Motion
 
+// Trapezoidal profile: the fastest velocity that can still stop within the remaining error,
+// never changing faster than the acceleration
+static float Ramp(float velocity, float error, float max_speed, float min_speed, float acceleration)
+{
+    float target = std::min(max_speed, sqrtf(2.0f * NAV_BRAKE_MARGIN * acceleration * fabsf(error)));
+    target = copysignf(std::max(target, min_speed), error);
+    float max_change = acceleration * SIM_TIMESTEP;
+    return velocity + std::clamp(target - velocity, -max_change, max_change);
+}
+
+static void StartDrive(Vector2 target)
+{
+    nav.target = target;
+    nav.mode = NAV_DRIVING;
+    nav.stall_time = 0.0f;
+    nav.blocked_time = 0.0f;
+    nav.wall_sample_valid = false;
+}
+
 static void StartNextMove()
 {
     if (!nav.move_pending)
@@ -364,14 +400,10 @@ static void StartNextMove()
     for (int i = 0; i < nav.move_cells; i++)
         target = GetNeighborCell(target, nav.heading);
 
-    nav.target = GetCellCenter(target);
-    nav.mode = NAV_DRIVING;
-    nav.stall_time = 0.0f;
-    nav.blocked_time = 0.0f;
-    nav.wall_sample_valid = false;
+    StartDrive(GetCellCenter(target));
 }
 
-static void UpdateTurn(Sim *sim, const SimState *state)
+static void UpdateTurn(const SimState *state)
 {
     float error = AngleDiff(nav.rotation, HeadingToRotation(nav.heading));
 
@@ -389,10 +421,7 @@ static void UpdateTurn(Sim *sim, const SimState *state)
             float along = Vector2DotProduct(Vector2Subtract(nav.position, center), axis);
 
             nav.nudge_pending = false;
-            nav.target = Vector2Add(center, Vector2Scale(axis, along + NAV_NUDGE));
-            nav.mode = NAV_DRIVING;
-            nav.stall_time = 0.0f;
-            nav.wall_sample_valid = false;
+            StartDrive(Vector2Add(center, Vector2Scale(axis, along + NAV_NUDGE)));
         }
         else
             nav.retries = 0;
@@ -400,37 +429,23 @@ static void UpdateTurn(Sim *sim, const SimState *state)
         return;
     }
 
-    // Fastest rotation that can still stop in time
-    float speed = std::min(NAV_TURN_SPEED_MAX, sqrtf(2.0f * NAV_BRAKE_MARGIN * NAV_TURN_ACCELERATION * fabsf(error)));
-    float target = copysignf(speed, error);
-    float max_change = NAV_TURN_ACCELERATION * SIM_TIMESTEP;
-
     nav.velocity = 0.0f;
-    nav.angular_velocity += std::clamp(target - nav.angular_velocity, -max_change, max_change);
+    nav.angular_velocity = Ramp(nav.angular_velocity, error, NAV_TURN_SPEED_MAX, 0.0f, NAV_TURN_ACCELERATION);
 
     // Stalled: trying to turn, but the gyroscope says it does not
-    if (fabsf(nav.angular_velocity) > 0.5f && fabsf(state->gyroscope) < 0.05f)
-        nav.stall_time += SIM_TIMESTEP;
-    else
-        nav.stall_time = 0.0f;
-
-    if (nav.stall_time > NAV_STALL_TIME)
+    if (Stalled(fabsf(nav.angular_velocity) > 0.5f && fabsf(state->gyroscope) < 0.05f))
     {
-        if (++nav.retries > NAV_RETRIES_MAX)
-        {
-            SetLost();
+        if (GiveUp())
             return;
-        }
 
         // Turn back to where the turn started, then move forward a little and retry
         nav.heading = nav.turn_from;
         nav.nudge_pending = true;
         nav.angular_velocity = 0.0f;
-        nav.stall_time = 0.0f;
     }
 }
 
-static void UpdateDrive(Sim *sim, const SimState *state)
+static void UpdateDrive(const SimState *state)
 {
     Vector2 axis = Vector2FromAngle(HeadingToRotation(nav.heading));
     Vector2 normal = {-axis.y, axis.x}; // Points left
@@ -462,17 +477,13 @@ static void UpdateDrive(Sim *sim, const SimState *state)
 
     if (fabsf(remaining) < NAV_DRIVE_DONE && fabsf(nav.velocity) <= NAV_SPEED_MIN)
     {
-        Arrive(sim, state);
+        Arrive(state);
         return;
     }
 
-    // Trapezoidal speed profile: accelerate up to the maximum speed, brake in time to stop.
     // The speed never changes faster than the acceleration, even when the estimate jumps:
     // braking harder would make the wheels slip. If the mouse overshoots, it backs up.
-    float speed = std::min(nav.max_speed, sqrtf(2.0f * NAV_BRAKE_MARGIN * nav.acceleration * fabsf(remaining)));
-    speed = copysignf(std::max(speed, NAV_SPEED_MIN), remaining);
-    float max_change = nav.acceleration * SIM_TIMESTEP;
-    nav.velocity += std::clamp(speed - nav.velocity, -max_change, max_change);
+    nav.velocity = Ramp(nav.velocity, remaining, nav.max_speed, NAV_SPEED_MIN, nav.acceleration);
 
     // Steer towards the center line (reversed when backing up)
     float heading_target = -std::clamp(NAV_STEER_LATERAL * lateral, -NAV_STEER_HEADING_MAX, NAV_STEER_HEADING_MAX);
@@ -481,21 +492,13 @@ static void UpdateDrive(Sim *sim, const SimState *state)
     nav.angular_velocity = NAV_STEER_GAIN * (heading_target - heading_error);
 
     // Stalled: trying to drive, but the encoders say it does not move
+    // Stuck: end the move and back up to the center of the cell behind the mouse
+    // (walls can only be read from a cell center). The planner then decides what to do.
     float encoder_speed = fabsf(GetEncoderDistance(state) - nav.encoder_distance_last) / SIM_TIMESTEP;
-    if (fabsf(nav.velocity) > 2.0f * NAV_SPEED_MIN && encoder_speed < 0.01f)
-        nav.stall_time += SIM_TIMESTEP;
-    else
-        nav.stall_time = 0.0f;
-
-    // Stuck on a straight line: end the move and back up to the center of the cell behind the
-    // mouse (walls can only be read from a cell center). The planner then decides what to do.
-    if (nav.stall_time > NAV_STALL_TIME)
+    if (Stalled(fabsf(nav.velocity) > 2.0f * NAV_SPEED_MIN && encoder_speed < 0.01f))
     {
-        if (++nav.retries > NAV_RETRIES_MAX)
-        {
-            SetLost();
+        if (GiveUp())
             return;
-        }
 
         Cell cell = PositionToCell(nav.position);
         Vector2 center = GetCellCenter(cell);
@@ -504,7 +507,6 @@ static void UpdateDrive(Sim *sim, const SimState *state)
 
         nav.target = center;
         nav.move_pending = false;
-        nav.stall_time = 0.0f;
         nav.blocked_time = 0.0f;
     }
 }
@@ -515,28 +517,19 @@ void NavReset(Sim *sim)
 {
     const SimState *state = GetSimState(sim);
 
+    // Start from scratch, except the speed (it persists across resets)
+    float max_speed = nav.max_speed;
+    float acceleration = nav.acceleration;
+    nav = {};
+    nav.max_speed = max_speed;
+    nav.acceleration = acceleration;
+
     nav.position = GetCellCenter({0, 0});
     nav.rotation = ROTATION_NORTH;
     nav.encoder_distance_last = GetEncoderDistance(state);
-    nav.distance_traveled = 0.0f;
-
     nav.cell = {0, 0};
     nav.heading = HEADING_NORTH;
-
-    nav.move_pending = false;
-
     nav.mode = NAV_IDLE;
-    nav.velocity = 0.0f;
-    nav.angular_velocity = 0.0f;
-    nav.stall_time = 0.0f;
-    nav.wall_sample_valid = false;
-    nav.nudge_pending = false;
-    nav.retries = 0;
-
-    if (nav.max_speed == 0.0f)
-        NavSetSpeed(NAV_SPEED_DEFAULT, NAV_ACCELERATION_DEFAULT);
-
-    memset(nav.seen, 0, sizeof(nav.seen));
 
     nav.walls = ReadWalls(state);
     CheckWalls();
@@ -557,11 +550,11 @@ void NavUpdate(Sim *sim)
         break;
 
     case NAV_TURNING:
-        UpdateTurn(sim, state);
+        UpdateTurn(state);
         break;
 
     case NAV_DRIVING:
-        UpdateDrive(sim, state);
+        UpdateDrive(state);
         break;
 
     case NAV_LOST:

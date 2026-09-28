@@ -9,7 +9,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
-#include <cstring>
 #include <random>
 #include <vector>
 
@@ -97,9 +96,7 @@ float AngleDiff(float source, float target)
 {
     float diff = target - source;
 
-    diff = atan2f(sinf(diff), cosf(diff));
-
-    return diff;
+    return atan2f(sinf(diff), cosf(diff));
 }
 
 // Maze
@@ -153,18 +150,12 @@ static void CreateMazePhysics(Sim *sim)
         b2CreatePolygonShape(walls_body, &shape_def, &box);
     };
 
-    // Horizontal wall segments
+    // Horizontal wall segments: the south side of each row (HasWall is true outside the maze)
     for (int32_t y = 0; y <= GRID_SIZE; y++)
     {
         for (int32_t x = 0; x < GRID_SIZE; x++)
         {
-            bool has_wall;
-            if (y == 0)
-                has_wall = HasWall(sim->maze, {x, y}, WALL_SOUTH);
-            else
-                has_wall = HasWall(sim->maze, {x, y - 1}, WALL_NORTH);
-
-            if (has_wall)
+            if (HasWall(sim->maze, {x, y - 1}, WALL_NORTH))
             {
                 Vector2 center = {(x + 0.5f) * CELL_SIZE, y * CELL_SIZE};
 
@@ -175,18 +166,12 @@ static void CreateMazePhysics(Sim *sim)
         }
     }
 
-    // Vertical wall segments
+    // Vertical wall segments: the west side of each column
     for (int32_t x = 0; x <= GRID_SIZE; x++)
     {
         for (int32_t y = 0; y < GRID_SIZE; y++)
         {
-            bool has_wall;
-            if (x == 0)
-                has_wall = HasWall(sim->maze, {x, y}, WALL_WEST);
-            else
-                has_wall = HasWall(sim->maze, {x - 1, y}, WALL_EAST);
-
-            if (has_wall)
+            if (HasWall(sim->maze, {x - 1, y}, WALL_EAST))
             {
                 Vector2 center = {x * CELL_SIZE, (y + 0.5f) * CELL_SIZE};
 
@@ -222,12 +207,8 @@ static void CreateMazePhysics(Sim *sim)
 static void CreateMousePhysics(Sim *sim)
 {
     b2BodyDef body_def = b2DefaultBodyDef();
+    // No damping (the default): the tires model all the friction. The pose is set by ResetMousePhysics.
     body_def.type = b2_dynamicBody;
-    body_def.position = b2Vec2(0.5f * CELL_SIZE, 0.5f * CELL_SIZE); // Start in center of cell (0,0)
-    body_def.rotation = b2MakeRot(ROTATION_NORTH);
-    body_def.linearDamping = 0.0f;
-    body_def.angularDamping = 0.0f;
-    body_def.fixedRotation = false;
     sim->mouse_body = b2CreateBody(sim->world, &body_def);
 
     b2ShapeDef shape_def = b2DefaultShapeDef();
@@ -239,7 +220,7 @@ static void CreateMousePhysics(Sim *sim)
     b2CreatePolygonShape(sim->mouse_body, &shape_def, &box);
 }
 
-static void UpdateIMU(Sim *sim, float dt)
+static void UpdateIMU(Sim *sim)
 {
     // Get velocity
     b2Vec2 b2_velocity = b2Body_GetLinearVelocity(sim->mouse_body);
@@ -249,7 +230,7 @@ static void UpdateIMU(Sim *sim, float dt)
     Vector2 delta_v = Vector2Subtract(velocity, sim->mouse_velocity_last);
     sim->mouse_velocity_last = velocity;
 
-    Vector2 acceleration = Vector2Scale(delta_v, 1.0f / dt);
+    Vector2 acceleration = Vector2Scale(delta_v, 1.0f / SIM_TIMESTEP);
 
     // Transform acceleration to body frame (y = forward, x = right)
     sim->state.accelerometer = Vector2Rotate(acceleration, TURN_CCW - sim->mouse_rotation);
@@ -303,9 +284,9 @@ static void ResetMouseController(Sim *sim)
     sim->encoder_distance_last = 0.0f;
 }
 
-static void UpdateGyroscopeDrift(Sim *sim, float dt)
+static void UpdateGyroscopeDrift(Sim *sim)
 {
-    sim->gyroscope_bias += GYROSCOPE_BIAS_WALK * sqrtf(dt) * RandomGaussian(sim);
+    sim->gyroscope_bias += GYROSCOPE_BIAS_WALK * sqrtf(SIM_TIMESTEP) * RandomGaussian(sim);
 }
 
 static float GetEncoderDistance(Sim *sim)
@@ -350,7 +331,7 @@ static void UpdateEncoders(Sim *sim)
 
 static void ResetMousePhysics(Sim *sim)
 {
-    // Reset mouse state
+    // At the center of the start cell, facing north
     Vector2 position = {0.5f * CELL_SIZE, 0.5f * CELL_SIZE};
     float rotation = ROTATION_NORTH;
 
@@ -398,7 +379,7 @@ static bool StartRun(Sim *sim)
 
 // Controller
 
-static void ApplyDrive(Sim *sim, float left_wheel_target_velocity, float right_wheel_target_velocity)
+static void ApplyDrive(Sim *sim, const float wheel_target[ENCODER_NUM])
 {
     // Get current velocity and rotation
     b2Vec2 b2_velocity = b2Body_GetLinearVelocity(sim->mouse_body);
@@ -412,13 +393,11 @@ static void ApplyDrive(Sim *sim, float left_wheel_target_velocity, float right_w
     float forward_velocity = Vector2DotProduct(velocity, forward);
     float lateral_velocity = Vector2DotProduct(velocity, right);
 
-    // Actual wheel speeds
-    float left_wheel_current_velocity = forward_velocity - angular_velocity * MOUSE_WHEEL_HALF_TRACK;
-    float right_wheel_current_velocity = forward_velocity + angular_velocity * MOUSE_WHEEL_HALF_TRACK;
-
-    // Back-EMF motor model: F = (k_t·k_e / R·r²) × (v_target − v_wheel)
-    float left_force = MOUSE_MOTOR_K * (left_wheel_target_velocity - left_wheel_current_velocity);
-    float right_force = MOUSE_MOTOR_K * (right_wheel_target_velocity - right_wheel_current_velocity);
+    // Ground speed under each wheel
+    float wheel_ground[ENCODER_NUM] = {
+        forward_velocity - angular_velocity * MOUSE_WHEEL_HALF_TRACK,
+        forward_velocity + angular_velocity * MOUSE_WHEEL_HALF_TRACK,
+    };
 
     // Tire grip: each wheel carries half the weight. While the motor force is within the grip, the
     // wheel rolls with the floor. Beyond it, the wheel slips: the floor pushes with the grip force
@@ -427,8 +406,7 @@ static void ApplyDrive(Sim *sim, float left_wheel_target_velocity, float right_w
     float grip = ValidateCell(cell) ? sim->floor_grip[cell.x][cell.y] : MOUSE_TIRE_GRIP;
     float wheel_grip = 0.5f * grip * MOUSE_MASS * GRAVITY;
 
-    float wheel_target[ENCODER_NUM] = {left_wheel_target_velocity, right_wheel_target_velocity};
-    float wheel_ground[ENCODER_NUM] = {left_wheel_current_velocity, right_wheel_current_velocity};
+    // Back-EMF motor model: F = (k_t·k_e / R·r²) × (v_target − v_wheel)
     float wheel_force[ENCODER_NUM];
 
     for (int i = 0; i < ENCODER_NUM; i++)
@@ -466,12 +444,11 @@ static void ApplyDrive(Sim *sim, float left_wheel_target_velocity, float right_w
         sim->wheel_slip[i] = sim->wheel_slipping[i] ? sim->wheel_speed[i] - wheel_ground[i] : 0.0f;
     }
 
-    left_force = wheel_force[ENCODER_LEFT];
-    right_force = wheel_force[ENCODER_RIGHT];
+    float left_force = wheel_force[ENCODER_LEFT];
+    float right_force = wheel_force[ENCODER_RIGHT];
 
     // Apply forward force
-    float force_magnitude = left_force + right_force;
-    Vector2 forward_force = Vector2Scale(forward, force_magnitude);
+    Vector2 forward_force = Vector2Scale(forward, left_force + right_force);
     b2Body_ApplyForceToCenter(sim->mouse_body, b2Vec2(forward_force.x, forward_force.y), true);
 
     // Apply lateral friction: cancel velocity perpendicular to heading, up to the tire grip (skid).
@@ -485,11 +462,11 @@ static void ApplyDrive(Sim *sim, float left_wheel_target_velocity, float right_w
     b2Body_ApplyTorque(sim->mouse_body, tau, true);
 }
 
-static void UpdateMouseController(Sim *sim, float dt)
+static void UpdateMouseController(Sim *sim)
 {
     // Measured velocities: the motor driver only knows what the encoders and the gyroscope tell it
     float encoder_distance = GetEncoderDistance(sim);
-    float velocity = (encoder_distance - sim->encoder_distance_last) / dt;
+    float velocity = (encoder_distance - sim->encoder_distance_last) / SIM_TIMESTEP;
     float angular_velocity = sim->state.gyroscope;
     sim->encoder_distance_last = encoder_distance;
 
@@ -506,20 +483,23 @@ static void UpdateMouseController(Sim *sim, float dt)
                                      MOUSE_VELOCITY_KI * sim->angular_velocity_integral;
 
     // Differential drive, limited by the maximum wheel velocity (motor voltage)
-    float left_command = velocity_command - angular_velocity_command * MOUSE_WHEEL_HALF_TRACK;
-    float right_command = velocity_command + angular_velocity_command * MOUSE_WHEEL_HALF_TRACK;
+    float wheel_command[ENCODER_NUM] = {
+        velocity_command - angular_velocity_command * MOUSE_WHEEL_HALF_TRACK,
+        velocity_command + angular_velocity_command * MOUSE_WHEEL_HALF_TRACK,
+    };
 
-    bool saturated = fabsf(left_command) > MOUSE_WHEEL_VELOCITY_MAX ||
-                     fabsf(right_command) > MOUSE_WHEEL_VELOCITY_MAX;
-
-    left_command = std::clamp(left_command, -MOUSE_WHEEL_VELOCITY_MAX, MOUSE_WHEEL_VELOCITY_MAX);
-    right_command = std::clamp(right_command, -MOUSE_WHEEL_VELOCITY_MAX, MOUSE_WHEEL_VELOCITY_MAX);
+    bool saturated = false;
+    for (float &command : wheel_command)
+    {
+        saturated |= fabsf(command) > MOUSE_WHEEL_VELOCITY_MAX;
+        command = std::clamp(command, -MOUSE_WHEEL_VELOCITY_MAX, MOUSE_WHEEL_VELOCITY_MAX);
+    }
 
     // Integrate only while not saturated (anti-windup)
     if (!saturated)
     {
-        sim->velocity_integral += velocity_error * dt;
-        sim->angular_velocity_integral += angular_velocity_error * dt;
+        sim->velocity_integral += velocity_error * SIM_TIMESTEP;
+        sim->angular_velocity_integral += angular_velocity_error * SIM_TIMESTEP;
     }
 
     // A zero target means "stop": forget what was accumulated (e.g. while pushing against a wall),
@@ -529,7 +509,7 @@ static void UpdateMouseController(Sim *sim, float dt)
     if (sim->target_angular_velocity == 0.0f)
         sim->angular_velocity_integral = 0.0f;
 
-    ApplyDrive(sim, left_command, right_command);
+    ApplyDrive(sim, wheel_command);
 }
 
 // Public API
@@ -584,42 +564,23 @@ bool ResetSim(Sim *sim)
 
 bool IsSimRunning(Sim *sim)
 {
-    if (sim->state.time >= RUN_TIME_MAX)
-        return false;
-
-    if (sim->state.run_number == 0)
-        return false;
-
-    return true;
+    return sim->state.run_number > 0 && sim->state.time < RUN_TIME_MAX;
 }
 
 void UpdateSim(Sim *sim)
 {
-    const float dt = SIM_TIMESTEP;
+    UpdateMouseController(sim);
 
-    // Update mouse controller
-    UpdateMouseController(sim, dt);
+    b2World_Step(sim->world, SIM_TIMESTEP, 4);
 
-    // Step physics
-    b2World_Step(sim->world, dt, 4);
-
-    // Update timers
+    // Timers
     if (sim->state.run_number >= 1)
-    {
-        sim->state.time += dt;
-        if (sim->state.time >= RUN_TIME_MAX)
-            sim->state.time = RUN_TIME_MAX;
-    }
+        sim->state.time = std::min(sim->state.time + SIM_TIMESTEP, RUN_TIME_MAX);
 
     if (sim->state.run_state == RUNSTATE_RUNNING)
-    {
-        sim->state.run_time += dt;
-        if (sim->state.run_time > RUN_TIME_MAX)
-            sim->state.run_time = RUN_TIME_MAX;
-    }
+        sim->state.run_time = std::min(sim->state.run_time + SIM_TIMESTEP, RUN_TIME_MAX);
 
-    // Update gyroscope drift
-    UpdateGyroscopeDrift(sim, dt);
+    UpdateGyroscopeDrift(sim);
 
     // Update mouse state (position, rotation, gyroscope and IR sensors)
     UpdateMouseState(sim);
@@ -628,7 +589,7 @@ void UpdateSim(Sim *sim)
     UpdateEncoders(sim);
 
     // Update accelerometer (uses the rotation just updated)
-    UpdateIMU(sim, dt);
+    UpdateIMU(sim);
 
     Cell cell = PositionToCell(sim->mouse_position);
 

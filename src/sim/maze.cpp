@@ -33,11 +33,10 @@ Maze *GenerateMaze(uint32_t seed)
     stack.push({0, 0});
     visited[0][0] = true;
 
-    // Direction: North, East, South, West
+    // Directions: North, East, South, West (the opposite of d is (d + 2) % 4)
     const int32_t dx[] = {0, 1, 0, -1};
     const int32_t dy[] = {1, 0, -1, 0};
-    const uint8_t wall_fwd[] = {WALL_NORTH, WALL_EAST, WALL_SOUTH, WALL_WEST};
-    const uint8_t wall_bwd[] = {WALL_SOUTH, WALL_WEST, WALL_NORTH, WALL_EAST};
+    const uint8_t wall[] = {WALL_NORTH, WALL_EAST, WALL_SOUTH, WALL_WEST};
 
     while (!stack.empty())
     {
@@ -47,8 +46,8 @@ Maze *GenerateMaze(uint32_t seed)
         int32_t ncount = 0;
         for (int32_t d = 0; d < 4; d++)
         {
-            int32_t nx = cur.x + dx[d], ny = cur.y + dy[d];
-            if (nx >= 0 && nx < GRID_SIZE && ny >= 0 && ny < GRID_SIZE && !visited[nx][ny])
+            Cell next = {cur.x + dx[d], cur.y + dy[d]};
+            if (ValidateCell(next) && !visited[next.x][next.y])
                 neighbors[ncount++] = d;
         }
 
@@ -60,14 +59,14 @@ Maze *GenerateMaze(uint32_t seed)
         }
 
         int32_t d = neighbors[std::uniform_int_distribution<>(0, ncount - 1)(rng)];
-        int32_t nx = cur.x + dx[d], ny = cur.y + dy[d];
+        Cell next = {cur.x + dx[d], cur.y + dy[d]};
 
         // Carve passage
-        maze->walls[cur.x][cur.y] &= ~wall_fwd[d];
-        maze->walls[nx][ny] &= ~wall_bwd[d];
+        maze->walls[cur.x][cur.y] &= ~wall[d];
+        maze->walls[next.x][next.y] &= ~wall[(d + 2) % 4];
 
-        visited[nx][ny] = true;
-        stack.push({nx, ny});
+        visited[next.x][next.y] = true;
+        stack.push(next);
     }
 
     // Open the interior of the goal 2x2 area so the mouse can traverse freely
@@ -88,10 +87,7 @@ Maze *LoadMaze(const char *filename)
     if (!f)
         return nullptr;
 
-    Maze *maze = new Maze();
-    for (int x = 0; x < GRID_SIZE; x++)
-        for (int y = 0; y < GRID_SIZE; y++)
-            maze->walls[x][y] = 0;
+    Maze *maze = new Maze(); // No walls
 
     char line[128];
     int file_row = 0;
@@ -183,7 +179,8 @@ bool ValidateCell(Cell cell)
 
 bool HasWall(const Maze *maze, Cell cell, uint8_t wall_bit)
 {
-    if (cell.x < 0 || cell.x >= GRID_SIZE || cell.y < 0 || cell.y >= GRID_SIZE)
+    // Outside the maze, everything is wall
+    if (!ValidateCell(cell))
         return true;
 
     return (maze->walls[cell.x][cell.y] & wall_bit) != 0;

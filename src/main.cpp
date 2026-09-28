@@ -5,13 +5,10 @@
  * Each .cpp file in src/agents/ is a mouse and builds its own executable.
  */
 
-#include <cstdio>
+#include <iostream>
 #include <map>
 #include <random>
 #include <string>
-#include <iostream>
-
-#include "raylib.h"
 
 #include "sim/maze.h"
 #include "ui/ui.h"
@@ -53,6 +50,24 @@ std::map<std::string, std::string> ParseArgs(int argc, char *argv[])
 }
 
 /**
+ * @brief Parses a seed (a non-negative integer).
+ *
+ * @return false if the text is not a number.
+ */
+static bool ParseSeed(const std::string &text, uint32_t &seed)
+{
+    try
+    {
+        seed = std::stoul(text);
+        return true;
+    }
+    catch (const std::exception &)
+    {
+        return false;
+    }
+}
+
+/**
  * @brief Main entry point of the program.
  */
 int main(int argc, char *argv[])
@@ -64,12 +79,7 @@ int main(int argc, char *argv[])
     if (args.contains("gen"))
     {
         uint32_t seed;
-
-        try
-        {
-            seed = std::stoul(args["gen"]);
-        }
-        catch (const std::exception &)
+        if (!ParseSeed(args["gen"], seed))
         {
             std::cerr << "error: invalid seed: " << args["gen"] << std::endl;
 
@@ -82,9 +92,7 @@ int main(int argc, char *argv[])
     }
     else if (args.contains("file"))
     {
-        std::string filename = args["file"];
-
-        maze = LoadMaze(filename.c_str());
+        maze = LoadMaze(args["file"].c_str());
 
         if (!maze)
         {
@@ -100,29 +108,22 @@ int main(int argc, char *argv[])
         program = program.substr(program.find_last_of("/\\") + 1);
         program = program.substr(0, program.find_last_of('.'));
 
-        printf("Usage: %s [options]\n", program.c_str());
-        printf("Options:\n");
-        printf("  --gen <number>        Generate a random maze\n");
-        printf("  --file <path>         Load the maze from a file\n");
-        printf("  --noise-seed <number> Repeat the random errors of a previous execution\n");
+        std::cout << "Usage: " << program << " [options]\n"
+                  << "Options:\n"
+                  << "  --gen <number>        Generate a random maze\n"
+                  << "  --file <path>         Load the maze from a file\n"
+                  << "  --noise-seed <number> Repeat the random errors of a previous execution\n";
 
         return 0;
     }
 
     // Noise seed: random unless given, and always printed, so that any execution can be repeated
     uint32_t noise_seed = std::random_device{}();
-    if (args.contains("noise-seed"))
+    if (args.contains("noise-seed") && !ParseSeed(args["noise-seed"], noise_seed))
     {
-        try
-        {
-            noise_seed = std::stoul(args["noise-seed"]);
-        }
-        catch (const std::exception &)
-        {
-            std::cerr << "error: invalid noise seed: " << args["noise-seed"] << std::endl;
+        std::cerr << "error: invalid noise seed: " << args["noise-seed"] << std::endl;
 
-            return 1;
-        }
+        return 1;
     }
 
     std::cout << "Noise seed: " << noise_seed << " (repeat this execution with --noise-seed " << noise_seed << ")\n";

@@ -8,9 +8,6 @@
  */
 
 #include <algorithm>
-#include <cmath>
-#include <cstdio>
-#include <cstring>
 
 #include "raylib.h"
 
@@ -144,34 +141,30 @@ static void DrawMaze()
                              WALL_THICKNESS_PIXELS, COLOR_GOAL_RING);
     }
 
-    // Walls
-    for (int32_t x = 0; x < GRID_SIZE; x++)
+    // Walls, each drawn once from its west or south end (HasWall is true outside the maze)
+    for (int32_t y = 0; y <= GRID_SIZE; y++)
+    {
+        for (int32_t x = 0; x < GRID_SIZE; x++)
+        {
+            if (HasWall(ui.maze, {x, y - 1}, WALL_NORTH))
+            {
+                Vector2 start = CellToScreen({x, y});
+                DrawRectangleV({start.x - WALL_HALF_THICKNESS_PIXELS, start.y - WALL_HALF_THICKNESS_PIXELS},
+                               {CELL_SIZE_PIXELS + WALL_THICKNESS_PIXELS, WALL_THICKNESS_PIXELS}, COLOR_WALL);
+            }
+        }
+    }
+
+    for (int32_t x = 0; x <= GRID_SIZE; x++)
     {
         for (int32_t y = 0; y < GRID_SIZE; y++)
         {
-            Cell cell = {x, y};
-
-            Vector2 top_left = CellToScreen({x, y + 1});
-            Vector2 bottom_right = CellToScreen({x + 1, y});
-            Vector2 size = Vector2Subtract(bottom_right, top_left);
-            Vector2 size_horizontal = {size.x + WALL_THICKNESS_PIXELS, WALL_THICKNESS_PIXELS};
-            Vector2 size_vertical = {WALL_THICKNESS_PIXELS, size.y + WALL_THICKNESS_PIXELS};
-
-            if (HasWall(ui.maze, cell, WALL_NORTH))
-                DrawRectangleV({top_left.x - WALL_HALF_THICKNESS_PIXELS, top_left.y - WALL_HALF_THICKNESS_PIXELS},
-                               size_horizontal, COLOR_WALL);
-
-            if (HasWall(ui.maze, cell, WALL_SOUTH))
-                DrawRectangleV({top_left.x - WALL_HALF_THICKNESS_PIXELS, bottom_right.y - WALL_HALF_THICKNESS_PIXELS},
-                               size_horizontal, COLOR_WALL);
-
-            if (HasWall(ui.maze, cell, WALL_WEST))
-                DrawRectangleV({top_left.x - WALL_HALF_THICKNESS_PIXELS, top_left.y - WALL_HALF_THICKNESS_PIXELS},
-                               size_vertical, COLOR_WALL);
-
-            if (HasWall(ui.maze, cell, WALL_EAST))
-                DrawRectangleV({bottom_right.x - WALL_HALF_THICKNESS_PIXELS, top_left.y - WALL_HALF_THICKNESS_PIXELS},
-                               size_vertical, COLOR_WALL);
+            if (HasWall(ui.maze, {x - 1, y}, WALL_EAST))
+            {
+                Vector2 start = CellToScreen({x, y + 1});
+                DrawRectangleV({start.x - WALL_HALF_THICKNESS_PIXELS, start.y - WALL_HALF_THICKNESS_PIXELS},
+                               {WALL_THICKNESS_PIXELS, CELL_SIZE_PIXELS + WALL_THICKNESS_PIXELS}, COLOR_WALL);
+            }
         }
     }
 
@@ -191,17 +184,16 @@ static void DrawMaze()
 static void DrawMouseSensors()
 {
     const SimState *sim_state = GetSimState(ui.sim);
+    Vector2 position = GetMousePosition(ui.sim);
+    Vector2 start = WorldToScreen(position);
 
     for (uint32_t i = 0; i < IR_SENSOR_NUM; i++)
     {
         float sensor_distance = sim_state->ir_sensors[i];
         bool sensor_hit = sensor_distance < (IR_SENSOR_RANGE_MAX - 1E-6);
 
-        Vector2 start = WorldToScreen(GetMousePosition(ui.sim));
-
         float angle = GetMouseRotation(ui.sim) + IR_SENSOR_ANGLES[i];
-        Vector2 direction = {std::cos(-angle), std::sin(-angle)};
-        Vector2 end = Vector2Add(start, Vector2Scale(direction, sensor_distance * PIXELS_PER_METER));
+        Vector2 end = WorldToScreen(Vector2Add(position, Vector2FromAngle(angle, sensor_distance)));
 
         if (sensor_hit)
         {
@@ -215,21 +207,21 @@ static void DrawMouseSensors()
 
 static void DrawMouse()
 {
-    Vector2 position = WorldToScreen(GetMousePosition(ui.sim));
+    Vector2 position = GetMousePosition(ui.sim);
     float rotation = GetMouseRotation(ui.sim);
+    Vector2 center = WorldToScreen(position);
 
     // Body
-    DrawRectanglePro({position.x, position.y,
+    DrawRectanglePro({center.x, center.y,
                       MOUSE_LENGTH_PIXELS, MOUSE_WIDTH_PIXELS},
                      {MOUSE_HALF_LENGTH_PIXELS, MOUSE_HALF_WIDTH_PIXELS},
                      -rotation * RAD2DEG,
                      COLOR_MOUSE);
 
     // Direction arrow
-    Vector2 direction = {std::cos(-rotation), std::sin(-rotation)};
-    Vector2 arrow_end = Vector2Add(position, Vector2Scale(direction, MOUSE_HALF_LENGTH_PIXELS));
+    Vector2 arrow_end = WorldToScreen(Vector2Add(position, Vector2FromAngle(rotation, MOUSE_HALF_LENGTH)));
 
-    DrawLineEx(position, arrow_end, MOUSE_ARROW_THICKNESS_PIXELS, COLOR_MOUSE_ARROW);
+    DrawLineEx(center, arrow_end, MOUSE_ARROW_THICKNESS_PIXELS, COLOR_MOUSE_ARROW);
 }
 
 static void DrawMouseEstimate()

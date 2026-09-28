@@ -197,11 +197,19 @@ static void CreateMazePhysics(Sim *sim)
         }
     }
 
-    // Posts: a real maze has one at every cell corner, even where no wall touches it
+    // Posts: a real maze has one at every cell corner, even where no wall touches it.
+    // The walls already cover the posts they touch (and look like walls to the IR sensors),
+    // so only lone posts are added.
     for (int32_t x = 0; x <= GRID_SIZE; x++)
     {
         for (int32_t y = 0; y <= GRID_SIZE; y++)
         {
+            // The corner (x, y) is the south-west corner of cell (x, y)
+            bool touched = HasWall(sim->maze, {x, y}, WALL_SOUTH) || HasWall(sim->maze, {x, y}, WALL_WEST) ||
+                           HasWall(sim->maze, {x - 1, y - 1}, WALL_NORTH) || HasWall(sim->maze, {x - 1, y - 1}, WALL_EAST);
+            if (touched)
+                continue;
+
             b2Polygon box = b2MakeOffsetBox(WALL_HALF_THICKNESS, WALL_HALF_THICKNESS,
                                             b2Vec2(x * CELL_SIZE, y * CELL_SIZE), b2MakeRot(0.0f));
             create_shape(box, IR_POST_REFLECTIVITY);

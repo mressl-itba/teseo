@@ -13,8 +13,9 @@
  *          trapezoidal speed profile, steering towards the center line.
  *        - Recovery: if a turn gets stuck (a corner touches a wall because the mouse stopped
  *          off-center), the mouse turns back, moves forward a little and tries again.
- *          If a straight line gets stuck, the mouse stops there and the path ends.
- *        - Safety: the mouse compares the walls it sees with the ones it saw before.
+ *          If a straight line gets stuck, the mouse backs up to the center of the cell behind it
+ *          and the path ends.
+ *        - Safety: the layer compares the walls it sees with the ones it saw before.
  *          If they contradict each other, it is lost and stops.
  * @author Theseús the hero
  */

@@ -138,8 +138,8 @@ enum RunState
  */
 struct SimState
 {
-    float time;          // Elapsed time since simulation start (seconds).
-    int run_number;      // Run counter (starts at 1, increments on reset).
+    float time;          // Elapsed time since the first run was started with [R] (seconds).
+    int run_number;      // Current run (1 to RUN_TOTAL; 0 before the first [R]).
     RunState run_state;  // Current run state (idle, running, returning).
     float run_time;      // Elapsed time since start of run (seconds).
     float run_time_best; // Best time achieved so far (seconds).
@@ -207,7 +207,7 @@ void PaintCell(Sim *sim, Cell cell, uint32_t color);
 void ResetCellColors(Sim *sim);
 
 /**
- * @brief Gets the color associated with the given maze cell, based on its state (e.g. discovered, goal).
+ * @brief Gets the color of the given maze cell, as painted with PaintCell().
  *
  * @param sim The simulation instance.
  * @param cell The cell coordinate to query.
@@ -264,7 +264,7 @@ void SetStatusText(Sim *sim, const char *text);
  * @brief Creates a new Teseo simulation instance with the given maze.
  *
  * @param maze The maze layout to use for the simulation.
- * @param noise_seed Seed for all the random errors (sensors, wheels, floor): same seed, same run.
+ * @param noise_seed Seed for all the random errors (sensors, wheels, floor): same seed, same execution.
  *
  * @return A pointer to the created simulation instance.
  */

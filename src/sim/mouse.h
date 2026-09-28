@@ -2,7 +2,7 @@
  * Teseo Micromouse Virtual Competition
  * Mouse interface
  *
- * @brief Functions that every mouse must define. Each folder in src/agents/
+ * @brief Functions that every mouse must define. Each .cpp file in src/agents/
  *        builds its own executable, so there is exactly one mouse per program.
  * @author Theseús the hero
  */

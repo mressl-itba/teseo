@@ -83,6 +83,7 @@ static struct
 
     Sim *sim;
     float time_accumulator; // Real time not yet simulated (seconds)
+    bool no_runs_left;      // [R] was pressed after the last run
 } ui;
 
 // Coordinate helpers
@@ -262,7 +263,17 @@ static void DrawMouseEstimate()
 
 static void DrawStatus()
 {
+    // The UI's own messages take precedence over the agent's
+    const SimState *state = GetSimState(ui.sim);
     const char *text = GetStatusText(ui.sim);
+
+    if (state->run_number == 0)
+        text = "Press [R] to start";
+    else if (state->time >= RUN_TIME_MAX)
+        text = "Time's up!";
+    else if (ui.no_runs_left)
+        text = "No runs left";
+
     if (!text[0])
         return;
 
@@ -432,6 +443,8 @@ bool UpdateUI()
     {
         if (ResetSim(ui.sim))
             ResetMouse(ui.sim);
+        else
+            ui.no_runs_left = true;
     }
 
     // Toggle fullscreen

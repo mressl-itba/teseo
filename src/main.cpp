@@ -104,12 +104,12 @@ int main(int argc, char *argv[])
         printf("Options:\n");
         printf("  --gen <number>        Generate a random maze\n");
         printf("  --file <path>         Load the maze from a file\n");
-        printf("  --noise-seed <number> Repeat the random errors of a previous run\n");
+        printf("  --noise-seed <number> Repeat the random errors of a previous execution\n");
 
         return 0;
     }
 
-    // Noise seed: random unless given, and always printed, so that any run can be repeated
+    // Noise seed: random unless given, and always printed, so that any execution can be repeated
     uint32_t noise_seed = std::random_device{}();
     if (args.contains("noise-seed"))
     {
@@ -125,7 +125,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    std::cout << "Noise seed: " << noise_seed << " (repeat this run with --noise-seed " << noise_seed << ")\n";
+    std::cout << "Noise seed: " << noise_seed << " (repeat this execution with --noise-seed " << noise_seed << ")\n";
 
     // Create the UI
     CreateUI(maze, noise_seed);

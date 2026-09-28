@@ -59,8 +59,9 @@
 // Wheel drive
 
 #define MOUSE_WHEEL_VELOCITY_MAX 1.5f                                    // m/s
-#define MOUSE_WHEEL_FORCE_MAX 0.5f                                       // N
+#define MOUSE_WHEEL_FORCE_MAX 1.5f                                       // N (strong enough to make the wheels slip: grip is the limit)
 #define MOUSE_MOTOR_K (MOUSE_WHEEL_FORCE_MAX / MOUSE_WHEEL_VELOCITY_MAX) // N·s/m (k_t·k_e / R·r²)
+#define MOUSE_WHEEL_INERTIA 0.01f                                        // kg, equivalent mass of each wheel's rotor, gears and wheel
 
 // Tire grip: maximum friction force = grip × weight. Beyond it, the wheels slip.
 // The grip changes from cell to cell (dust on the floor), and stays the same across runs.

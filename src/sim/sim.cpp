@@ -62,6 +62,8 @@ struct Sim
     // Wheel encoders
     float encoder_scale[ENCODER_NUM]; // Scale error of each wheel (fixed per mouse)
     float wheel_slip[ENCODER_NUM];    // Wheel surface speed minus ground speed (m/s), non-zero when slipping
+    float wheel_speed[ENCODER_NUM];   // Wheel surface speed while slipping (m/s)
+    bool wheel_slipping[ENCODER_NUM]; // True while the wheel slips on the floor
     Vector2 encoder_last_position;    // Mouse pose at the last encoder update
     float encoder_last_rotation;
 
@@ -358,6 +360,13 @@ static void ResetMousePhysics(Sim *sim)
     sim->mouse_velocity_last = {0.0f, 0.0f};
     sim->state.accelerometer = {0.0f, 0.0f};
 
+    for (int i = 0; i < ENCODER_NUM; i++)
+    {
+        sim->wheel_slipping[i] = false;
+        sim->wheel_speed[i] = 0.0f;
+        sim->wheel_slip[i] = 0.0f;
+    }
+
     ResetEncoders(sim);
 
     // Reset controller
@@ -403,26 +412,54 @@ static void ApplyDrive(Sim *sim, float left_wheel_target_velocity, float right_w
     float left_force = MOUSE_MOTOR_K * (left_wheel_target_velocity - left_wheel_current_velocity);
     float right_force = MOUSE_MOTOR_K * (right_wheel_target_velocity - right_wheel_current_velocity);
 
-    // Tire grip: each wheel carries half the weight. Beyond the grip, the force is limited and the
-    // (massless) wheel spins until the motor force equals the grip: F = K × (v_target − v_surface).
+    // Tire grip: each wheel carries half the weight. While the motor force is within the grip, the
+    // wheel rolls with the floor. Beyond it, the wheel slips: the floor pushes with the grip force
+    // only, and the wheel speeds up or slows down with its own inertia until it rolls again.
     Cell cell = PositionToCell(sim->mouse_position);
     float grip = ValidateCell(cell) ? sim->floor_grip[cell.x][cell.y] : MOUSE_TIRE_GRIP;
     float wheel_grip = 0.5f * grip * MOUSE_MASS * GRAVITY;
 
-    sim->wheel_slip[ENCODER_LEFT] = 0.0f;
-    sim->wheel_slip[ENCODER_RIGHT] = 0.0f;
+    float wheel_target[ENCODER_NUM] = {left_wheel_target_velocity, right_wheel_target_velocity};
+    float wheel_ground[ENCODER_NUM] = {left_wheel_current_velocity, right_wheel_current_velocity};
+    float wheel_force[ENCODER_NUM];
 
-    if (fabsf(left_force) > wheel_grip)
+    for (int i = 0; i < ENCODER_NUM; i++)
     {
-        left_force = copysignf(wheel_grip, left_force);
-        sim->wheel_slip[ENCODER_LEFT] = (left_wheel_target_velocity - left_force / MOUSE_MOTOR_K) - left_wheel_current_velocity;
+        if (!sim->wheel_slipping[i])
+        {
+            // Rolling: the motor moves the wheel and the mouse together, so the floor transmits the
+            // mouse's share of the motor force (each wheel moves half the mouse), unless it exceeds the grip
+            const float mouse_share = 0.5f * MOUSE_MASS;
+            float motor_force = MOUSE_MOTOR_K * (wheel_target[i] - wheel_ground[i]);
+            wheel_force[i] = motor_force * mouse_share / (mouse_share + MOUSE_WHEEL_INERTIA);
+
+            if (fabsf(wheel_force[i]) > wheel_grip)
+            {
+                sim->wheel_slipping[i] = true;
+                sim->wheel_speed[i] = wheel_ground[i];
+            }
+        }
+
+        if (sim->wheel_slipping[i])
+        {
+            // Slipping: kinetic friction against the relative motion, the wheel follows its own dynamics
+            float motor_force = MOUSE_MOTOR_K * (wheel_target[i] - sim->wheel_speed[i]);
+            float relative = sim->wheel_speed[i] - wheel_ground[i];
+            float direction = relative != 0.0f ? copysignf(1.0f, relative) : copysignf(1.0f, motor_force);
+            wheel_force[i] = direction * wheel_grip;
+
+            sim->wheel_speed[i] += (motor_force - wheel_force[i]) / MOUSE_WHEEL_INERTIA * SIM_TIMESTEP;
+
+            // Rolls again when the wheel catches up with the floor
+            if ((sim->wheel_speed[i] - wheel_ground[i]) * direction <= 0.0f)
+                sim->wheel_slipping[i] = false;
+        }
+
+        sim->wheel_slip[i] = sim->wheel_slipping[i] ? sim->wheel_speed[i] - wheel_ground[i] : 0.0f;
     }
 
-    if (fabsf(right_force) > wheel_grip)
-    {
-        right_force = copysignf(wheel_grip, right_force);
-        sim->wheel_slip[ENCODER_RIGHT] = (right_wheel_target_velocity - right_force / MOUSE_MOTOR_K) - right_wheel_current_velocity;
-    }
+    left_force = wheel_force[ENCODER_LEFT];
+    right_force = wheel_force[ENCODER_RIGHT];
 
     // Apply forward force
     float force_magnitude = left_force + right_force;

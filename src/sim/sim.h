@@ -159,7 +159,7 @@ struct Sim;
 // -----------------------------------------------------------------------------
 // WARNING: Only the following functions are available to mouse agents.
 // Do not call any other functions from the simulation API.
-// Doing so will disqualify yout team from the competition.
+// Doing so will disqualify your team from the competition.
 
 /**
  * @brief Creates a vector from an angle in radians (CCW+).

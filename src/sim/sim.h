@@ -81,15 +81,23 @@
 
 #define ENCODER_SCALE_ERROR 0.007f                 // Stddev of the wheels' common scale error, fixed per mouse (≈7 mm/m)
 #define ENCODER_MISMATCH_ERROR 0.001f              // Stddev of each wheel's additional scale error, fixed per mouse
-#define ENCODER_SLIP_NOISE 0.01f                   // Relative stddev of each step's wheel displacement (wheel slip)
+#define ENCODER_SLIP_NOISE 0.00045f                // Random wheel slip: relative stddev of the displacement × √(time step) (√s)
 #define GYROSCOPE_BIAS (0.05f * PI / 180.0f)       // Stddev of residual gyroscope bias, drawn each run (rad/s)
 #define GYROSCOPE_BIAS_WALK (0.005f * PI / 180.0f) // Gyroscope bias random walk (rad/s per √s)
 
 // Mouse sensors (5 IR sensors: left, front-left, front, front-right, right)
 
 #define IR_SENSOR_NUM 5
-#define IR_SENSOR_RANGE_MIN MOUSE_HALF_WIDTH // m
-#define IR_SENSOR_RANGE_MAX 1.0f             // m
+// Reflective sensors (IR emitter + phototransistor): the reflected light falls with the square of
+// the distance, so the noise grows quickly with it. Based on measurements of real micromouse sensors:
+// ~1 mm of error at 60 mm, ~10 mm at 150-200 mm, and only noise beyond 250 mm.
+
+#define IR_SENSOR_RANGE_MIN MOUSE_HALF_WIDTH  // m
+#define IR_SENSOR_RANGE_MAX 0.25f             // m, farther walls are not seen (the sensor reads this value)
+#define IR_SENSOR_NOISE 0.001f                // m, stddev of a reading at IR_SENSOR_NOISE_DISTANCE
+#define IR_SENSOR_NOISE_DISTANCE 0.06f        // m, the stddev grows with the square of the distance
+#define IR_WALL_REFLECTIVITY_NOISE 0.03f      // Stddev of each wall's reflectivity (apparent distance ∝ 1/√reflectivity)
+#define IR_POST_REFLECTIVITY 0.3f             // Lone posts reflect less light: they look ~1.8 times farther
 
 enum
 {
@@ -255,10 +263,11 @@ void SetStatusText(Sim *sim, const char *text);
  * @brief Creates a new Teseo simulation instance with the given maze.
  *
  * @param maze The maze layout to use for the simulation.
+ * @param noise_seed Seed for all the random errors (sensors, wheels, floor): same seed, same run.
  *
  * @return A pointer to the created simulation instance.
  */
-Sim *CreateSim(const Maze *maze);
+Sim *CreateSim(const Maze *maze, uint32_t noise_seed);
 
 /**
  * @brief Frees all resources associated with the simulation instance.

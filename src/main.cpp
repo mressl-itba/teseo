@@ -7,6 +7,7 @@
 
 #include <cstdio>
 #include <map>
+#include <random>
 #include <string>
 #include <iostream>
 
@@ -94,16 +95,40 @@ int main(int argc, char *argv[])
     }
     else
     {
-        printf("Usage: teseo [options]\n");
+        // Program name without directory or extension: each mouse is its own executable
+        std::string program = argv[0];
+        program = program.substr(program.find_last_of("/\\") + 1);
+        program = program.substr(0, program.find_last_of('.'));
+
+        printf("Usage: %s [options]\n", program.c_str());
         printf("Options:\n");
         printf("  --gen <number>        Generate a random maze\n");
         printf("  --file <path>         Load the maze from a file\n");
+        printf("  --noise-seed <number> Repeat the random errors of a previous run\n");
 
         return 0;
     }
 
+    // Noise seed: random unless given, and always printed, so that any run can be repeated
+    uint32_t noise_seed = std::random_device{}();
+    if (args.contains("noise-seed"))
+    {
+        try
+        {
+            noise_seed = std::stoul(args["noise-seed"]);
+        }
+        catch (const std::exception &)
+        {
+            std::cerr << "error: invalid noise seed: " << args["noise-seed"] << std::endl;
+
+            return 1;
+        }
+    }
+
+    std::cout << "Noise seed: " << noise_seed << " (repeat this run with --noise-seed " << noise_seed << ")\n";
+
     // Create the UI
-    CreateUI(maze);
+    CreateUI(maze, noise_seed);
 
     // Main loop
     while (UpdateUI())

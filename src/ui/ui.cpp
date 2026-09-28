@@ -174,6 +174,18 @@ static void DrawMaze()
                                size_vertical, COLOR_WALL);
         }
     }
+
+    // Posts at every cell corner
+    for (int32_t x = 0; x <= GRID_SIZE; x++)
+    {
+        for (int32_t y = 0; y <= GRID_SIZE; y++)
+        {
+            Vector2 corner = CellToScreen({x, y});
+
+            DrawRectangleV({corner.x - WALL_HALF_THICKNESS_PIXELS, corner.y - WALL_HALF_THICKNESS_PIXELS},
+                           {WALL_THICKNESS_PIXELS, WALL_THICKNESS_PIXELS}, COLOR_WALL);
+        }
+    }
 }
 
 static void DrawMouseSensors()
@@ -378,11 +390,11 @@ static void DrawPanel()
 
 // Public API
 
-void CreateUI(const Maze *maze)
+void CreateUI(const Maze *maze, uint32_t noise_seed)
 {
     ui.maze = maze;
 
-    ui.sim = CreateSim(maze);
+    ui.sim = CreateSim(maze, noise_seed);
 
     // Monitor queries need an initialized window, so the target FPS is set afterwards.
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Teseo — Micromouse Virtual Competition");

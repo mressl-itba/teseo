@@ -157,6 +157,15 @@ Maze *LoadMaze(const char *filename)
         return nullptr;
     }
 
+    // The maze border is always closed, even if the file forgets a wall
+    for (int i = 0; i < GRID_SIZE; i++)
+    {
+        maze->walls[i][0] |= WALL_SOUTH;
+        maze->walls[i][GRID_SIZE - 1] |= WALL_NORTH;
+        maze->walls[0][i] |= WALL_WEST;
+        maze->walls[GRID_SIZE - 1][i] |= WALL_EAST;
+    }
+
     return maze;
 }
 

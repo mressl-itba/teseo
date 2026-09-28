@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <cstring>
 #include <random>
+#include <vector>
 
 #include <box2d/box2d.h>
 
@@ -38,6 +39,11 @@ struct Sim
     // Box2D world and bodies
     b2WorldId world;
     b2BodyId mouse_body;
+    std::vector<float> reflectivity; // IR reflectivity of each wall and post shape (index = shape user data - 1)
+
+    // Random numbers for all the errors, from the noise seed
+    std::mt19937 rng;
+    std::normal_distribution<float> normal;
 
     // Sim state
     Vector2 mouse_position;      // World position (meters, north/east coordinates)
@@ -73,12 +79,9 @@ struct Sim
 
 // Random numbers
 
-static float RandomGaussian()
+static float RandomGaussian(Sim *sim)
 {
-    static std::mt19937 rng(std::random_device{}());
-    static std::normal_distribution<float> noise(0.0f, 1.0f);
-
-    return noise(rng);
+    return sim->normal(sim->rng);
 }
 
 // Math helpers
@@ -140,6 +143,14 @@ static void CreateMazePhysics(Sim *sim)
     shape_def.material.restitution = 0.05f; // Nearly inelastic (foam-tipped ABS walls)
     shape_def.material.friction = 0.4f;
 
+    // Each shape remembers its IR reflectivity through its user data
+    auto create_shape = [&](b2Polygon box, float reflectivity)
+    {
+        sim->reflectivity.push_back(reflectivity);
+        shape_def.userData = (void *)(uintptr_t)sim->reflectivity.size();
+        b2CreatePolygonShape(walls_body, &shape_def, &box);
+    };
+
     // Horizontal wall segments
     for (int32_t y = 0; y <= GRID_SIZE; y++)
     {
@@ -157,7 +168,7 @@ static void CreateMazePhysics(Sim *sim)
 
                 b2Polygon box = b2MakeOffsetBox(WALL_HALF_WIDTH, WALL_HALF_THICKNESS,
                                                 b2Vec2(center.x, center.y), b2MakeRot(0.0f));
-                b2CreatePolygonShape(walls_body, &shape_def, &box);
+                create_shape(box, 1.0f + IR_WALL_REFLECTIVITY_NOISE * RandomGaussian(sim));
             }
         }
     }
@@ -179,8 +190,19 @@ static void CreateMazePhysics(Sim *sim)
 
                 b2Polygon box = b2MakeOffsetBox(WALL_HALF_THICKNESS, WALL_HALF_HEIGHT,
                                                 b2Vec2(center.x, center.y), b2MakeRot(0.0f));
-                b2CreatePolygonShape(walls_body, &shape_def, &box);
+                create_shape(box, 1.0f + IR_WALL_REFLECTIVITY_NOISE * RandomGaussian(sim));
             }
+        }
+    }
+
+    // Posts: a real maze has one at every cell corner, even where no wall touches it
+    for (int32_t x = 0; x <= GRID_SIZE; x++)
+    {
+        for (int32_t y = 0; y <= GRID_SIZE; y++)
+        {
+            b2Polygon box = b2MakeOffsetBox(WALL_HALF_THICKNESS, WALL_HALF_THICKNESS,
+                                            b2Vec2(x * CELL_SIZE, y * CELL_SIZE), b2MakeRot(0.0f));
+            create_shape(box, IR_POST_REFLECTIVITY);
         }
     }
 }
@@ -245,10 +267,20 @@ static void UpdateMouseState(Sim *sim)
 
         b2RayResult rayResult = b2World_CastRayClosest(sim->world, start, translation, filter);
 
+        float reading = IR_SENSOR_RANGE_MAX;
         if (rayResult.hit)
-            sim->state.ir_sensors[i] = rayResult.fraction * IR_SENSOR_RANGE_MAX;
-        else
-            sim->state.ir_sensors[i] = IR_SENSOR_RANGE_MAX;
+        {
+            // Less reflective surfaces look farther away (the light falls with the square of the distance)
+            uintptr_t shape_index = (uintptr_t)b2Shape_GetUserData(rayResult.shapeId);
+            float reflectivity = shape_index ? sim->reflectivity[shape_index - 1] : 1.0f;
+            float distance = rayResult.fraction * IR_SENSOR_RANGE_MAX / sqrtf(reflectivity);
+
+            // Noise grows with the square of the distance
+            float ratio = distance / IR_SENSOR_NOISE_DISTANCE;
+            reading = distance + IR_SENSOR_NOISE * ratio * ratio * RandomGaussian(sim);
+        }
+
+        sim->state.ir_sensors[i] = std::clamp(reading, 0.0f, IR_SENSOR_RANGE_MAX);
     }
 }
 
@@ -263,7 +295,7 @@ static void ResetMouseController(Sim *sim)
 
 static void UpdateGyroscopeDrift(Sim *sim, float dt)
 {
-    sim->gyroscope_bias += GYROSCOPE_BIAS_WALK * sqrtf(dt) * RandomGaussian();
+    sim->gyroscope_bias += GYROSCOPE_BIAS_WALK * sqrtf(dt) * RandomGaussian(sim);
 }
 
 static float GetEncoderDistance(Sim *sim)
@@ -296,8 +328,11 @@ static void UpdateEncoders(Sim *sim)
         delta_distance + delta_rotation * MOUSE_WHEEL_HALF_TRACK + sim->wheel_slip[ENCODER_RIGHT] * SIM_TIMESTEP,
     };
 
+    // Random slip: its variance grows with the distance traveled, whatever the time step
+    float slip_noise = ENCODER_SLIP_NOISE / sqrtf(SIM_TIMESTEP);
+
     for (int i = 0; i < ENCODER_NUM; i++)
-        sim->state.encoders[i] += wheel_delta[i] * (sim->encoder_scale[i] + ENCODER_SLIP_NOISE * RandomGaussian());
+        sim->state.encoders[i] += wheel_delta[i] * (sim->encoder_scale[i] + slip_noise * RandomGaussian(sim));
 
     sim->encoder_last_position = sim->mouse_position;
     sim->encoder_last_rotation = sim->mouse_rotation;
@@ -310,7 +345,7 @@ static void ResetMousePhysics(Sim *sim)
     float rotation = ROTATION_NORTH;
 
     // New residual gyroscope bias for this run (as after a gyroscope calibration at the start cell)
-    sim->gyroscope_bias = GYROSCOPE_BIAS * RandomGaussian();
+    sim->gyroscope_bias = GYROSCOPE_BIAS * RandomGaussian(sim);
 
     sim->estimated_pose_valid = false;
     sim->status_text[0] = '\0';
@@ -442,15 +477,23 @@ static void UpdateMouseController(Sim *sim, float dt)
         sim->angular_velocity_integral += angular_velocity_error * dt;
     }
 
+    // A zero target means "stop": forget what was accumulated (e.g. while pushing against a wall),
+    // or the mouse would keep moving after being told to stop
+    if (sim->target_velocity == 0.0f)
+        sim->velocity_integral = 0.0f;
+    if (sim->target_angular_velocity == 0.0f)
+        sim->angular_velocity_integral = 0.0f;
+
     ApplyDrive(sim, left_command, right_command);
 }
 
 // Public API
 
-Sim *CreateSim(const Maze *maze)
+Sim *CreateSim(const Maze *maze, uint32_t noise_seed)
 {
     Sim *sim = new Sim();
     sim->maze = maze;
+    sim->rng.seed(noise_seed);
 
     ResetCellColors(sim);
 
@@ -464,13 +507,13 @@ Sim *CreateSim(const Maze *maze)
     // Floor grip, fixed for the whole simulation
     for (int x = 0; x < GRID_SIZE; x++)
         for (int y = 0; y < GRID_SIZE; y++)
-            sim->floor_grip[x][y] = std::max(MOUSE_TIRE_GRIP + MOUSE_TIRE_GRIP_NOISE * RandomGaussian(), 0.5f);
+            sim->floor_grip[x][y] = std::max(MOUSE_TIRE_GRIP + MOUSE_TIRE_GRIP_NOISE * RandomGaussian(sim), 0.5f);
 
     // Wheel scale errors are a property of the mouse, so they stay the same across runs:
     // a common error (wheel diameter) plus a smaller left/right mismatch.
-    float encoder_scale = 1.0f + ENCODER_SCALE_ERROR * RandomGaussian();
+    float encoder_scale = 1.0f + ENCODER_SCALE_ERROR * RandomGaussian(sim);
     for (int i = 0; i < ENCODER_NUM; i++)
-        sim->encoder_scale[i] = encoder_scale * (1.0f + ENCODER_MISMATCH_ERROR * RandomGaussian());
+        sim->encoder_scale[i] = encoder_scale * (1.0f + ENCODER_MISMATCH_ERROR * RandomGaussian(sim));
 
     ResetMousePhysics(sim);
 
@@ -589,8 +632,9 @@ const SimState *GetSimState(Sim *sim)
 
 void SetMouseVelocity(Sim *sim, float linear, float angular)
 {
-    sim->target_velocity = linear;
-    sim->target_angular_velocity = angular;
+    // Invalid values (NaN, infinity) would break the physics: treat them as "stop"
+    sim->target_velocity = std::isfinite(linear) ? linear : 0.0f;
+    sim->target_angular_velocity = std::isfinite(angular) ? angular : 0.0f;
 }
 
 void SetEstimatedPose(Sim *sim, Vector2 position, float rotation)

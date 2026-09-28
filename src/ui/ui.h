@@ -16,8 +16,9 @@
  * @brief Creates the raylib window and the simulation.
  *
  * @param maze The maze layout, used for the simulation and for rendering.
+ * @param noise_seed Seed for the simulation's random errors.
  */
-void CreateUI(const Maze *maze);
+void CreateUI(const Maze *maze, uint32_t noise_seed);
 
 /**
  * @brief Steps the simulation and updates the UI.
